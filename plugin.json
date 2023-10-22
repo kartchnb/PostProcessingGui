@@ -1,8 +1,8 @@
 {
-    "name": "Post Processing",
-    "author": "Ultimaker",
-    "version": "2.2.1",
+    "name": "Gcode Injector",
+    "author": "Brad Kartchner",
+    "version": "0.0.1",
     "api": 8,
-    "description": "Extension that allows for user created scripts for post processing",
+    "description": "Simplifies injecting code at specific layers in a model",
     "catalog": "cura"
 }

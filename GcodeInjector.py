@@ -2,6 +2,7 @@
 # The PostProcessingPlugin is released under the terms of the LGPLv3 or higher.
 
 import configparser  # The script lists are stored in metadata as serialised config files.
+from functools import cached_property
 import importlib.util
 import io  # To allow configparser to write to a string.
 import os.path
@@ -10,10 +11,12 @@ import sys
 from typing import Dict, Type, TYPE_CHECKING, List, Optional, cast
 
 from PyQt6.QtCore import QObject, pyqtProperty, pyqtSignal, pyqtSlot
+PYQT_VERSION = 6
 
 from UM.Application import Application
 from UM.Extension import Extension
 from UM.Logger import Logger
+from UM.Message import Message
 from UM.PluginRegistry import PluginRegistry
 from UM.Resources import Resources
 from UM.Trust import Trust, TrustBasics
@@ -27,33 +30,146 @@ if TYPE_CHECKING:
     from .Script import Script
 
 
-class PostProcessingPlugin(QObject, Extension):
+class GcodeInjector(QObject, Extension):
     """Extension type plugin that enables pre-written scripts to post process g-code files."""
+
+    _acceptedScriptKeys = [
+        'PauseAtHeight'
+    ]
+
+
     def __init__(self, parent = None) -> None:
         QObject.__init__(self, parent)
         Extension.__init__(self)
-        self.setMenuName(i18n_catalog.i18nc("@item:inmenu", "Post Processing"))
-        self.addMenuItem(i18n_catalog.i18nc("@item:inmenu", "Modify G-Code"), self.showPopup)
-        self._view = None
 
-        # Loaded scripts are all scripts that can be used
-        self._loaded_scripts = {}  # type: Dict[str, Type[Script]]
-        self._script_labels = {}  # type: Dict[str, str]
+        self._show_injection_panel = False
 
-        # Script list contains instances of scripts in loaded_scripts.
-        # There can be duplicates, which will be executed in sequence.
-        self._script_list = []  # type: List[Script]
-        self._selected_script_index = -1
-        self._global_container_stack = Application.getInstance().getGlobalContainerStack()
-        if self._global_container_stack:
-            self._global_container_stack.metaDataChanged.connect(self._restoreScriptInforFromMetadata)
+        # Wait until the application is ready before completing initializing
+        Application.getInstance().pluginsLoaded.connect(self._onPluginsLoaded)
 
-        Application.getInstance().getOutputDeviceManager().writeStarted.connect(self.execute)
-        Application.getInstance().globalContainerStackChanged.connect(self._onGlobalContainerStackChanged)  # When the current printer changes, update the list of scripts.
-        CuraApplication.getInstance().mainWindowChanged.connect(self._createView)  # When the main window is created, create the view so that we can display the post-processing icon if necessary.
+        #Application.getInstance().globalContainerStackChanged.connect(self._onGlobalContainerStackChanged)  # When the current printer changes, update the list of scripts.
+        #CuraApplication.getInstance().mainWindowChanged.connect(self._createView)  # When the main window is created, create the view so that we can display the post-processing icon if necessary.
 
-    selectedIndexChanged = pyqtSignal()
 
+
+    _show_injection_panel_changed = pyqtSignal()
+
+    
+
+    @cached_property
+    def _qmlDir(self)->str:
+        plugin_dir = PluginRegistry.getInstance().getPluginPath(self.getPluginId())
+        qml_dir = os.path.join(plugin_dir, 'Resources', 'QML', f'QT{PYQT_VERSION}')
+        return qml_dir
+    
+
+
+    @cached_property
+    def _injectionPanel(self)->QObject:
+        qml_file_path = os.path.join(self._qmlDir, 'InjectionPanel.qml')
+        component = CuraApplication.getInstance().createQmlComponent(qml_file_path, {'manager': self})
+        return component
+    
+
+
+    @cached_property
+    def _injectionMenu(self)->QObject:
+        qml_file_path = os.path.join(self._qmlDir, 'InjectionMenu.qml')
+        component = CuraApplication.getInstance().createQmlComponent(qml_file_path, {'manager': self})
+        return component
+    
+
+
+    @cached_property
+    def _postProcessingPlugin(self):
+        return PluginRegistry.getInstance().getPluginObject('PostProcessingPlugin')
+
+
+
+    @pyqtProperty(bool, notify=_show_injection_panel_changed)
+    def showInjectionPanel(self)->bool:
+        return self._show_injection_panel
+    
+    @showInjectionPanel.setter
+    def showInjectionPanel(self, value:bool)->None:
+        self._show_injection_panel = value
+        self._show_injection_panel_changed.emit()
+
+
+
+    _loaded_script_list_changed = pyqtSignal()
+    @pyqtProperty('QStringList', notify=_loaded_script_list_changed)
+    def availableInjections(self):
+        return [self._postProcessingPlugin.getScriptLabelByKey(key) for key in self._postProcessingPlugin.loadedScriptList if key in self._acceptedScriptKeys]
+
+
+
+    @pyqtSlot()
+    def onInjectButtonLeftClicked(self)->None:
+        layer_number = Application.getInstance().getController().getView('SimulationView').getCurrentLayer()
+        
+        # TODO: Delete the following lines
+        Message(f'Left-clicked at layer {layer_number + 1}', title=self.getPluginId()).show()
+        postProcessingPlugin = PluginRegistry.getInstance().getPluginObject('PostProcessingPlugin')
+        postProcessingPlugin.showPopup()
+
+
+
+    @pyqtSlot()
+    def onInjectButtonRightClicked(self)->None:
+
+        # TODO: Delete the following lines
+        #Message('Right-clicked', title=self.getPluginId()).show()
+        injectionMenu = self._injectionMenu
+        self._injectionMenu.show()
+
+
+
+    def _onActivityChanged(self)->None:
+        ''' Called when the sliced state of the SimulationView has changed or the view has changed
+            If the scene has been sliced, the activity is True, otherwise False '''
+        
+        try:
+            state = CuraApplication.getInstance().getController().getActiveView().getActivity()
+        except AttributeError:
+            state = False
+
+        self.showInjectionPanel = state
+        self.showInjectionPanel = True # TODO: Delete this line
+
+
+
+    def _onEngineCreated(self)->None:
+        ''' Called when the QT engine is created and ready 
+            QML components can be created at this point '''
+
+        # Connect to the simulation view
+        Application.getInstance().getController().getView('SimulationView').activityChanged.connect(self._onActivityChanged)
+        Application.getInstance().getController().activeViewChanged.connect(self._onActivityChanged)
+
+        # Create the injection panel
+        CuraApplication.getInstance().addAdditionalComponent('saveButton', self._injectionPanel)
+
+        # TODO: Delete the following
+        self.onInjectButtonRightClicked()
+        self._postProcessingPlugin.scriptListChanged.connect(self._loaded_script_list_changed)
+        
+
+
+    def _onPluginsLoaded(self)->None:
+        ''' Called when the plugins have been completely loaded 
+            Once this is done, we still need to wait for the engine to be created and ready '''
+
+        # Delay the connection to the engine created signal to ensure the plugins are ready
+        Application.getInstance().engineCreatedSignal.connect(self._onEngineCreated)
+
+
+
+
+
+
+
+'''
     @pyqtProperty(str, notify = selectedIndexChanged)
     def selectedScriptDefinitionId(self) -> Optional[str]:
         try:
@@ -411,3 +527,4 @@ class PostProcessingPlugin(QObject, Extension):
         return False  # Default verdict should be False, being the most secure fallback
 
 
+'''
