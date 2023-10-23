@@ -1,21 +1,19 @@
 // Copyright (c) 2022 Jaime van Kessel, Ultimaker B.V.
 // The PostProcessingPlugin is released under the terms of the LGPLv3 or higher.
 
-import QtQuick 2.2
-import QtQuick.Controls 2.15
-import QtQml.Models 2.15 as Models
-import QtQuick.Layouts 1.1
-import QtQuick.Window 2.2
+import QtQuick 6.0
+import QtQuick.Controls 6.0
+import QtQuick.Layouts 6.0
 
-import UM 1.5 as UM
-import Cura 1.0 as Cura
+import UM 1.6 as UM
+import Cura 1.7 as Cura
 
 UM.Dialog
 {
     id: dialog
 
     title: 'Gcode Injector'
-    width: 700 * screenScaleFactor
+    width: 500 * screenScaleFactor
     height: 500 * screenScaleFactor
     minimumWidth: 400 * screenScaleFactor
     minimumHeight: 250 * screenScaleFactor
@@ -60,7 +58,6 @@ UM.Dialog
 
             ColumnLayout
             {
-    //            height: parent.height
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.alignment: Qt.AlignTop
@@ -69,30 +66,24 @@ UM.Dialog
                 {
                     Layout.fillWidth: true
                     model: manager.availableInjections
+                    textRole: 'name'
                 }
 
                 ListView
                 {
                     id: listview
-                    anchors
-                    {
-                        top: scriptSpecsHeader.bottom
-                        topMargin: settingsPanel.textMargin
-                        left: parent.left
-                        leftMargin: UM.Theme.getSize("default_margin").width
-                        right: parent.right
-                        bottom: parent.bottom
-                    }
+                    Layout.fillWidth: true // BAK
+                    Layout.fillHeight: true // BAK
 
                     ScrollBar.vertical: UM.ScrollBar {}
                     clip: true
-    //                visible: manager.selectedScriptDefinitionId != ""
+                    visible: manager.selectedInjectionId != ""
                     spacing: UM.Theme.getSize("default_lining").height
 
                     model: UM.SettingDefinitionsModel
                     {
                         id: definitionsModel
-    //                    containerId: manager.selectedScriptDefinitionId
+                        containerId: manager.selectedInjectionId
                         onContainerIdChanged: definitionsModel.setAllVisible(true)
                         showAll: true
                     }
@@ -164,7 +155,7 @@ UM.Dialog
                         UM.SettingPropertyProvider
                         {
                             id: provider
-    //                        containerStackId: manager.selectedScriptStackId
+                            containerStackId: manager.selectedScriptStackId
                             key: model.key ? model.key : "None"
                             watchedProperties: [ "value", "enabled", "state", "validationState" ]
                             storeIndex: 0

@@ -98,10 +98,24 @@ class GcodeInjector(QObject, Extension):
 
 
     _loaded_script_list_changed = pyqtSignal()
-    @pyqtProperty('QStringList', notify=_loaded_script_list_changed)
-    def availableInjections(self):
-        return [self._postProcessingPlugin.getScriptLabelByKey(key) for key in self._postProcessingPlugin.loadedScriptList if key in self._acceptedScriptKeys]
+    @pyqtProperty(list, notify=_loaded_script_list_changed)
+    def availableInjections(self)->list:
+#        return [{'name': self._postProcessingPlugin.getScriptLabelByKey(key)} for key in self._postProcessingPlugin.loadedScriptList if key in self._acceptedScriptKeys]
+        return [{'name': self._postProcessingPlugin.getScriptLabelByKey(key)} for key in self._postProcessingPlugin.loadedScriptList]
 
+
+
+    _plugin_selectedIndexChanged = pyqtSignal()
+    @pyqtProperty(str, notify=_plugin_selectedIndexChanged)
+    def selectedInjectionId(self)->str:
+        return self._postProcessingPlugin.selectedScriptDefinitionId
+    
+
+
+    @pyqtProperty(str, notify=_plugin_selectedIndexChanged)
+    def selectedScriptStackId(self)->str:
+        return self._postProcessingPlugin.selectedScriptStackId
+    
 
 
     @pyqtSlot()
@@ -151,8 +165,9 @@ class GcodeInjector(QObject, Extension):
         CuraApplication.getInstance().addAdditionalComponent('saveButton', self._injectionPanel)
 
         # TODO: Delete the following
-        self.onInjectButtonRightClicked()
+        #self.onInjectButtonRightClicked()
         self._postProcessingPlugin.scriptListChanged.connect(self._loaded_script_list_changed)
+        self._postProcessingPlugin.selectedIndexChanged.connect(self._plugin_selectedIndexChanged)
         
 
 
