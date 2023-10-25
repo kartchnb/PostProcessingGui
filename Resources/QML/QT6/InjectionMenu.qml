@@ -64,9 +64,19 @@ UM.Dialog
                 
                 Cura.ComboBox
                 {
+                    id: injectionSelection
                     Layout.fillWidth: true
-                    model: manager.availableInjections
+                    model: manager.availableInjectionLabels
                     textRole: 'name'
+                    currentIndex: manager.selectedInjectionIndex
+
+                    onCurrentIndexChanged:
+                    {
+                        if (manager.selectedInjectionIndex != currentIndex)
+                        {
+                            manager.setSelectedInjectionIndex(currentIndex)
+                        }
+                    }
                 }
 
                 ListView
