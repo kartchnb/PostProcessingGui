@@ -9,10 +9,9 @@ RowLayout
 {
     visible: manager.showInjectionPanel
 
-    /*
     Repeater
     {
-        model: dataModel.injectedLayers
+        model: manager.injectedLayerNumbers
         Cura.SecondaryButton
         {
             property int layer_number: modelData
@@ -35,17 +34,16 @@ RowLayout
                 {
                     if (mouse.button === Qt.RightButton)
                     {
-                        manager.onLayerButtonRightClicked(layer_number)
+                        manager.onExistingInjectionButtonRightClicked(layer_number)
                     }
                     else
                     {
-                        manager.onLayerButtonLeftClicked(layer_number)
+                        manager.onExistingInjectionButtonLeftClicked(layer_number)
                     }
                 }
             }
         }
     }
-    */
 
     Cura.PrimaryButton
     {
@@ -62,11 +60,11 @@ RowLayout
             {
                 if (mouse.button === Qt.RightButton)
                 {
-                    manager.onInjectButtonRightClicked()
+                    manager.onInsertInjectionButtonRightClicked()
                 }
                 else
                 {
-                    manager.onInjectButtonLeftClicked()
+                    manager.onInsertInjectionButtonLeftClicked()
                 }
             }
         }
