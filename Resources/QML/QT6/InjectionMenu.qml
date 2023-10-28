@@ -58,6 +58,7 @@ UM.Dialog
 
             ColumnLayout
             {
+                id: settingsPanel
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.alignment: Qt.AlignTop
@@ -165,7 +166,7 @@ UM.Dialog
                         UM.SettingPropertyProvider
                         {
                             id: provider
-                            containerStackId: manager.selectedScriptStackId
+                            containerStackId: manager.selectedStackId
                             key: model.key ? model.key : "None"
                             watchedProperties: [ "value", "enabled", "state", "validationState" ]
                             storeIndex: 0

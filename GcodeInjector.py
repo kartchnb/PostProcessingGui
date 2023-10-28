@@ -4,8 +4,10 @@
 import configparser  # The script lists are stored in metadata as serialised config files.
 import copy
 from functools import cached_property
+from glob import glob
 import importlib.util
 import io  # To allow configparser to write to a string.
+import json
 import os.path
 import pkgutil
 import sys
@@ -20,6 +22,10 @@ from UM.Logger import Logger
 from UM.Message import Message
 from UM.PluginRegistry import PluginRegistry
 from UM.Resources import Resources
+from UM.Settings.ContainerFormatError import ContainerFormatError
+from UM.Settings.ContainerRegistry import ContainerRegistry
+from UM.Settings.DefinitionContainer import DefinitionContainer
+from UM.Settings.SettingDefinition import DefinitionPropertyType
 from UM.Trust import Trust, TrustBasics
 from UM.i18n import i18nCatalog
 from cura import ApplicationMetadata
@@ -34,9 +40,6 @@ if TYPE_CHECKING:
 class GcodeInjector(QObject, Extension):
     """Extension type plugin that enables pre-written scripts to post process g-code files."""
 
-    _acceptedScriptKeys = [
-        'PauseAtHeight',
-    ]
 
 
     def __init__(self, parent = None) -> None:
@@ -50,6 +53,9 @@ class GcodeInjector(QObject, Extension):
 
         # Wait until the application is ready before completing initializing
         CuraApplication.getInstance().mainWindowChanged.connect(self._onMainWindowChanged)
+
+        # Intercept gcode before it is sent to its destination
+        Application.getInstance().getOutputDeviceManager().writeStarted.connect(self.onWriteStarted)
 
 
 
@@ -95,12 +101,34 @@ class GcodeInjector(QObject, Extension):
     
 
 
+    @cached_property
+    def _availableJsonFileNames(self):
+        plugin_dir = PluginRegistry.getInstance().getPluginPath(self.getPluginId())
+        json_dir = os.path.join(plugin_dir, 'Resources', 'Json')
+        json_wildcard = os.path.join(json_dir, '*.json')
+        json_fileNames = glob(json_wildcard)
+        return json_fileNames
+    
+
+
+    @cached_property
+    def _availableJsonIds(self):
+        json_ids = [os.path.splitext(os.path.basename(fileName))[0] for fileName in self._availableJsonFileNames]
+        return json_ids
+    
+
+
     @property
     def _selectedInjectionScript(self):
         if self._selected_injection_script is None:
             self.setSelectedInjectionIndex(self._selected_injection_index)
 
         return self._selected_injection_script
+
+
+
+    def onWriteStarted(self, output_device)->None:
+        Message('Write Started').show()
 
 
 
@@ -117,16 +145,15 @@ class GcodeInjector(QObject, Extension):
 
     @pyqtProperty(list, notify=_loaded_script_list_changed)
     def availableInjectionKeys(self)->list:
-        if len(self._acceptedScriptKeys) > 0:
-            return [key for key in self._postProcessingPlugin.loadedScriptList if key in self._acceptedScriptKeys]
-        else:
-            return self._postProcessingPlugin.loadedScriptList
+        keys = [key for key in self._postProcessingPlugin.loadedScriptList if key in self._availableJsonIds]
+        return keys
 
 
 
     @pyqtProperty(list, notify=_loaded_script_list_changed)
     def availableInjectionLabels(self)->list:
-        return [{'name': self._postProcessingPlugin.getScriptLabelByKey(key)} for key in self.availableInjectionKeys]
+        labels = [{'name': self._postProcessingPlugin.getScriptLabelByKey(key) + ' Injection'} for key in self.availableInjectionKeys]
+        return labels
     
 
 
@@ -135,13 +162,29 @@ class GcodeInjector(QObject, Extension):
         return self._selected_injection_index
     
     @pyqtSlot(int)
-    def setSelectedInjectionIndex(self, value:int)->None:
-        self._selected_injection_index = value
-        selected_injection_key = self.availableInjectionKeys[value]
-        self._selected_injection_script = self._postProcessingPlugin._loaded_scripts[selected_injection_key]()
-        self._selected_injection_script.initialize()
-        # Hack to prevent reslicing when script changes are made
-        self._selected_injection_script._stack.propertyChanged.disconnect(self._selected_injection_script._onPropertyChanged)
+    def setSelectedInjectionIndex(self, index:int)->None:
+        self._selected_injection_index = index
+        selected_injection_key = self.availableInjectionKeys[index]
+        new_script = self._postProcessingPlugin._loaded_scripts[selected_injection_key]()
+        new_script.initialize()
+        
+        # Hack - Don't reslice after script changes because that will mess up the preview display
+        new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
+        
+        # Hack - Overlay customized settings for the selected script
+        json_fileName = self._availableJsonFileNames[index]
+        with open(json_fileName, 'r') as json_file:
+            setting_data = json.load(json_file)
+
+        if 'key' in setting_data:
+            id = setting_data['key']
+            definitions = ContainerRegistry.getInstance().findDefinitionContainers(id=id)
+            if not definitions:
+                definition = DefinitionContainer(id)
+                definition.deserialize(json.dumps(setting_data))
+                ContainerRegistry.getInstance().addContainer(definition)
+
+        self._selected_injection_script = new_script
         self._selected_injection_script_changed.emit()
 
 
@@ -149,7 +192,7 @@ class GcodeInjector(QObject, Extension):
     @pyqtProperty(str, notify=_selected_injection_script_changed)
     def selectedInjectionId(self)->str:
         try:
-            id = self._selectedInjectionScript.getDefinitionId()
+            id = self._selectedInjectionScript.getDefinitionId() + '_Injection'
         except AttributeError:
             id = ""
         return id
@@ -157,7 +200,7 @@ class GcodeInjector(QObject, Extension):
 
 
     @pyqtProperty(str, notify=_selected_injection_script_changed)
-    def selectedScriptStackId(self)->str:
+    def selectedStackId(self)->str:
         try:
             id = self._selectedInjectionScript.getStackId()
         except AttributeError:
@@ -170,7 +213,6 @@ class GcodeInjector(QObject, Extension):
     def injectedLayerNumbers(self)->list:
         layer_numbers = list(self._injections.keys())
         layer_numbers.sort()
-        Logger.log('d', f'layer_numbers = {layer_numbers}')
         return layer_numbers
     
 
@@ -178,29 +220,27 @@ class GcodeInjector(QObject, Extension):
     @pyqtSlot()
     def onInsertInjectionButtonLeftClicked(self)->None:
         layer_number = self._simulationView.getCurrentLayer()
-        Message(f'onInsertInjectionButtonLeftClicked on layer {layer_number}').show()
         self._addInjection(layer_number)
 
 
 
     @pyqtSlot()
     def onInsertInjectionButtonRightClicked(self)->None:
-        Message('onInsertInjectionButtonRightClicked').show()
         self._injectionMenu.show()
+        
+
 
 
 
     @pyqtSlot(int)
     def onExistingInjectionButtonLeftClicked(self, layer_number:int)->None:
         self._simulationView.setLayer(layer_number)
-        Message(f'onExistingInjectionButtonLeftClicked for layer {layer_number}').show()
 
 
 
     @pyqtSlot(int)
-    def onExistingInjectionButtonLeftClicked(self, layer_number:int)->None:
-        Message(f'onExistingInjectionButtonLeftClicked for layer {layer_number}').show()
-        pass
+    def onExistingInjectionButtonRightClicked(self, layer_number:int)->None:
+        self._removeInjection(layer_number)
 
 
 
@@ -208,7 +248,15 @@ class GcodeInjector(QObject, Extension):
         injection_script_copy = copy.copy(self._selected_injection_script)
         self._injections[layer_number] = injection_script_copy
         self._injections_changed.emit()
-        Logger.log('d', f'Added injection at layer {layer_number}')
+
+
+
+    def _removeInjection(self, layer_number:int)->None:
+        try:
+            del self._injections[layer_number]
+            self._injections_changed.emit()
+        except IndexError:
+            pass
 
 
 
@@ -222,7 +270,6 @@ class GcodeInjector(QObject, Extension):
             state = False
 
         self.showInjectionPanel = state
-        self.showInjectionPanel = True # TODO: Delete this line
 
 
 
