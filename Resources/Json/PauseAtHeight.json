@@ -1,5 +1,4 @@
 {
-    "name": "Pause at height (injection)",
     "key": "PauseAtHeight_Injection",
     "layer_setting": "pause_layer",
     "settings":

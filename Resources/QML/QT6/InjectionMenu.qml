@@ -75,7 +75,7 @@ UM.Dialog
                     {
                         if (manager.selectedInjectionIndex != currentIndex)
                         {
-                            manager.setSelectedInjectionIndex(currentIndex)
+                            selectedInjectionIndex = currentIndex
                         }
                     }
                 }
@@ -88,13 +88,13 @@ UM.Dialog
 
                     ScrollBar.vertical: UM.ScrollBar {}
                     clip: true
-                    //visible: manager.selectedInjectionId != ""
+                    //visible: manager.selectedDefinitionId != ""
                     spacing: UM.Theme.getSize("default_lining").height
 
                     model: UM.SettingDefinitionsModel
                     {
                         id: definitionsModel
-                        containerId: manager.selectedInjectionId
+                        containerId: manager.selectedDefinitionId
                         onContainerIdChanged: definitionsModel.setAllVisible(true)
                         showAll: true
                     }

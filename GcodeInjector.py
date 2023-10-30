@@ -33,6 +33,8 @@ from UM.i18n import i18nCatalog
 from cura import ApplicationMetadata
 from cura.CuraApplication import CuraApplication
 
+from .RecursiveDictOverlay import recursiveDictOverlay
+
 i18n_catalog = i18nCatalog("cura")
 
 if TYPE_CHECKING:
@@ -45,12 +47,15 @@ class GcodeInjector(QObject, Extension):
 
 
     def __init__(self, parent = None) -> None:
+        ''' Basic initialization only
+            Most initialization is done in the _onMainWindowChanged function '''
+        
         QObject.__init__(self, parent)
         Extension.__init__(self)
 
         self._show_injection_panel = False
         self._selected_injection_index = 0
-        self._selected_injection_script = None
+        self._injection_script_master = None
         self._injections = {}
 
         # Wait until the application is ready before completing initializing
@@ -61,15 +66,18 @@ class GcodeInjector(QObject, Extension):
 
 
 
+    # All QT signals are here
     _show_injection_panel_changed = pyqtSignal()
     _loaded_script_list_changed = pyqtSignal()
-    _selected_injection_script_changed = pyqtSignal()
+    _injection_script_master_changed = pyqtSignal()
     _injections_changed = pyqtSignal()
 
     
 
     @cached_property
     def _qmlDir(self)->str:
+        ''' Convenience property to cache and return the directory of QML files '''
+
         plugin_dir = PluginRegistry.getInstance().getPluginPath(self.getPluginId())
         qml_dir = os.path.join(plugin_dir, 'Resources', 'QML', f'QT{PYQT_VERSION}')
         return qml_dir
@@ -78,6 +86,8 @@ class GcodeInjector(QObject, Extension):
 
     @cached_property
     def _injectionPanel(self)->QObject:
+        ''' Convenience property to cache and return the injection panel '''
+
         qml_file_path = os.path.join(self._qmlDir, 'InjectionPanel.qml')
         component = CuraApplication.getInstance().createQmlComponent(qml_file_path, {'manager': self})
         return component
@@ -86,6 +96,7 @@ class GcodeInjector(QObject, Extension):
 
     @cached_property
     def _injectionMenu(self)->QObject:
+        ''' Convenience property to cache and return the injection menu dialog '''
         qml_file_path = os.path.join(self._qmlDir, 'InjectionMenu.qml')
         component = CuraApplication.getInstance().createQmlComponent(qml_file_path, {'manager': self})
         return component
@@ -94,17 +105,23 @@ class GcodeInjector(QObject, Extension):
 
     @cached_property
     def _simulationView(self):
+        ''' Convenience property to cache and return the SimulationView object '''
+
         return Application.getInstance().getController().getView('SimulationView')
 
 
     @cached_property
     def _postProcessingPlugin(self):
+        ''' Convenience property to cache and return the PostProcessingPlugin object '''
+
         return PluginRegistry.getInstance().getPluginObject('PostProcessingPlugin')
     
 
 
     @cached_property
     def _availableJsonFileNames(self):
+        ''' Return a list of all the JSON overlay files included with this plugin '''
+
         plugin_dir = PluginRegistry.getInstance().getPluginPath(self.getPluginId())
         json_dir = os.path.join(plugin_dir, 'Resources', 'Json')
         json_wildcard = os.path.join(json_dir, '*.json')
@@ -115,17 +132,11 @@ class GcodeInjector(QObject, Extension):
 
     @cached_property
     def _availableJsonIds(self):
+        ''' Return a list of the JSON overlay IDs included with this plugin
+            These IDs are just the JSON filename stripped of the extension '''
+        
         json_ids = [os.path.splitext(os.path.basename(fileName))[0] for fileName in self._availableJsonFileNames]
         return json_ids
-    
-
-
-    @property
-    def _selectedInjectionScript(self):
-        if self._selected_injection_script is None:
-            self.setSelectedInjectionIndex(self._selected_injection_index)
-
-        return self._selected_injection_script
 
 
 
@@ -148,6 +159,9 @@ class GcodeInjector(QObject, Extension):
 
     @pyqtProperty(list, notify=_loaded_script_list_changed)
     def availableInjectionKeys(self)->list:
+        ''' Return the keys of the supported post-processing scripts
+            Scripts are only supported if this plugin contains a matching overlay JSON file '''
+        
         keys = [key for key in self._postProcessingPlugin.loadedScriptList if key in self._availableJsonIds]
         return keys
 
@@ -155,58 +169,60 @@ class GcodeInjector(QObject, Extension):
 
     @pyqtProperty(list, notify=_loaded_script_list_changed)
     def availableInjectionLabels(self)->list:
-        labels = [{'name': self._postProcessingPlugin.getScriptLabelByKey(key) + ' Injection'} for key in self.availableInjectionKeys]
+        ''' Return the labels of the supported post-processing scripts '''
+
+        labels = [{'name': self._postProcessingPlugin.getScriptLabelByKey(key)} for key in self.availableInjectionKeys]
         return labels
     
 
 
     def setSelectedInjectionIndex(self, index:int)->None:
+        ''' Create a new master script to use for injections '''
 
-        # Create the injection script
+        # Create the injection script, but don't initialize yet
         selected_script_key = self.availableInjectionKeys[index]
         new_script = self._postProcessingPlugin._loaded_scripts[selected_script_key]()
         
-        # Hack - Overlay customized setting definitions for the script
-        setting_data = new_script.getSettingData()
-        Logger.log('d', f'setting_data = {setting_data}')
+        # Load the settings overlay for the script
         json_fileName = self._availableJsonFileNames[index]
         with open(json_fileName, 'r') as json_file:
             overlay_setting_data = json.load(json_file, object_pairs_hook = collections.OrderedDict)
             Logger.log('d', f'overlay_setting_data = {overlay_setting_data}')
-        
-        #setting_data.update(overlay_setting_data)
-        def dictOverlay(original, overlay):
-            for key, value in overlay.items():
-                if isinstance(value, collections.OrderedDict):
-                    original[key] = dictOverlay(original.get(key, {}), value)
-                else:
-                    original[key] = value
-            return original
 
-        setting_data = dictOverlay(setting_data, overlay_setting_data)
-        Logger.log('d', f'new setting_data = {setting_data}')
+        # Overlay the settings onto the script's original settings
+        setting_data = recursiveDictOverlay(new_script.getSettingData(), overlay_setting_data)
+
+        # Force the script to use the new, overlayed settings
         new_script.getSettingData = MethodType(lambda self: setting_data, new_script)
 
-        # Initiailze the script with the overlayed settings definitions
+        # Now, initialize the script
         new_script.initialize()
 
         # Hack - Don't reslice after script changes because that will mess up the preview display
         new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
 
+        # Update the master script
         self._selected_injection_index = index
-        self._selected_injection_script = new_script
-        self._selected_injection_script_changed.emit()
+        self._injection_script_master = new_script
+        self._injection_script_master_changed.emit()
 
-    @pyqtProperty(int, notify=_selected_injection_script_changed, fset=setSelectedInjectionIndex)
+
+
+    @pyqtProperty(int, notify=_injection_script_master_changed, fset=setSelectedInjectionIndex)
     def selectedInjectionIndex(self)->int:
+        ''' Return the index of the currently-selected master script '''
+
         return self._selected_injection_index
 
 
 
-    @pyqtProperty(str, notify=_selected_injection_script_changed)
-    def selectedInjectionId(self)->str:
+    @pyqtProperty(str, notify=_injection_script_master_changed)
+    def selectedDefinitionId(self)->str:
+        ''' Return the ID of the currently-selected DefinitionContainer 
+            This ID is the value of the "key" entry in the script's settings '''
+        
         try:
-            id = self._selectedInjectionScript.getDefinitionId()
+            id = self._injection_script_master.getDefinitionId()
             Logger.log('d', f'id = {id}')
         except AttributeError:
             id = ""
@@ -214,10 +230,13 @@ class GcodeInjector(QObject, Extension):
     
 
 
-    @pyqtProperty(str, notify=_selected_injection_script_changed)
+    @pyqtProperty(str, notify=_injection_script_master_changed)
     def selectedStackId(self)->str:
+        ''' Return the ID of the currently-selected script's ContainerStack
+            This is a unique numerical ID based on the script object instance '''
+        
         try:
-            id = self._selectedInjectionScript.getStackId()
+            id = self._injection_script_master.getStackId()
         except AttributeError:
             id = ""
         return id
@@ -260,7 +279,7 @@ class GcodeInjector(QObject, Extension):
 
 
     def _addInjection(self, layer_number:int)->None:
-        injection_script_copy = copy.copy(self._selected_injection_script)
+        injection_script_copy = copy.copy(self._injection_script_master)
         self._injections[layer_number] = injection_script_copy
         self._injections_changed.emit()
 
@@ -290,6 +309,9 @@ class GcodeInjector(QObject, Extension):
 
     def _onMainWindowChanged(self)->None:
         ''' The application should be ready at this point '''
+
+        # Initialize the script master
+        self.setSelectedInjectionIndex(self._selected_injection_index)
 
         # Connect to the simulation view
         self._simulationView.activityChanged.connect(self._onActivityChanged)
