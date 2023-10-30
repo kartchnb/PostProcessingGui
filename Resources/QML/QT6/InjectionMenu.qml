@@ -88,7 +88,7 @@ UM.Dialog
 
                     ScrollBar.vertical: UM.ScrollBar {}
                     clip: true
-                    visible: manager.selectedInjectionId != ""
+                    //visible: manager.selectedInjectionId != ""
                     spacing: UM.Theme.getSize("default_lining").height
 
                     model: UM.SettingDefinitionsModel

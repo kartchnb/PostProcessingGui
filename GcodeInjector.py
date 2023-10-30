@@ -1,6 +1,7 @@
 # Copyright (c) 2018 Jaime van Kessel, Ultimaker B.V.
 # The PostProcessingPlugin is released under the terms of the LGPLv3 or higher.
 
+import collections
 import configparser  # The script lists are stored in metadata as serialised config files.
 import copy
 from functools import cached_property
@@ -11,6 +12,7 @@ import json
 import os.path
 import pkgutil
 import sys
+from types import MethodType
 from typing import Dict, Type, TYPE_CHECKING, List, Optional, cast
 
 from PyQt6.QtCore import QObject, pyqtProperty, pyqtSignal, pyqtSlot
@@ -134,8 +136,9 @@ class GcodeInjector(QObject, Extension):
 
     @pyqtProperty(bool, notify=_show_injection_panel_changed)
     def showInjectionPanel(self)->bool:
+        return True # TODO: Delete this line
         return self._show_injection_panel
-    
+        
     @showInjectionPanel.setter
     def showInjectionPanel(self, value:bool)->None:
         self._show_injection_panel = value
@@ -157,42 +160,54 @@ class GcodeInjector(QObject, Extension):
     
 
 
-    @pyqtProperty(int, notify=_selected_injection_script_changed)
-    def selectedInjectionIndex(self)->int:
-        return self._selected_injection_index
-    
-    @pyqtSlot(int)
     def setSelectedInjectionIndex(self, index:int)->None:
-        self._selected_injection_index = index
-        selected_injection_key = self.availableInjectionKeys[index]
-        new_script = self._postProcessingPlugin._loaded_scripts[selected_injection_key]()
-        new_script.initialize()
+
+        # Create the injection script
+        selected_script_key = self.availableInjectionKeys[index]
+        new_script = self._postProcessingPlugin._loaded_scripts[selected_script_key]()
         
-        # Hack - Don't reslice after script changes because that will mess up the preview display
-        new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
-        
-        # Hack - Overlay customized settings for the selected script
+        # Hack - Overlay customized setting definitions for the script
+        setting_data = new_script.getSettingData()
+        Logger.log('d', f'setting_data = {setting_data}')
         json_fileName = self._availableJsonFileNames[index]
         with open(json_fileName, 'r') as json_file:
-            setting_data = json.load(json_file)
+            overlay_setting_data = json.load(json_file, object_pairs_hook = collections.OrderedDict)
+            Logger.log('d', f'overlay_setting_data = {overlay_setting_data}')
+        
+        #setting_data.update(overlay_setting_data)
+        def dictOverlay(original, overlay):
+            for key, value in overlay.items():
+                if isinstance(value, collections.OrderedDict):
+                    original[key] = dictOverlay(original.get(key, {}), value)
+                else:
+                    original[key] = value
+            return original
 
-        if 'key' in setting_data:
-            id = setting_data['key']
-            definitions = ContainerRegistry.getInstance().findDefinitionContainers(id=id)
-            if not definitions:
-                definition = DefinitionContainer(id)
-                definition.deserialize(json.dumps(setting_data))
-                ContainerRegistry.getInstance().addContainer(definition)
+        setting_data = dictOverlay(setting_data, overlay_setting_data)
+        Logger.log('d', f'new setting_data = {setting_data}')
+        new_script.getSettingData = MethodType(lambda self: setting_data, new_script)
 
+        # Initiailze the script with the overlayed settings definitions
+        new_script.initialize()
+
+        # Hack - Don't reslice after script changes because that will mess up the preview display
+        new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
+
+        self._selected_injection_index = index
         self._selected_injection_script = new_script
         self._selected_injection_script_changed.emit()
+
+    @pyqtProperty(int, notify=_selected_injection_script_changed, fset=setSelectedInjectionIndex)
+    def selectedInjectionIndex(self)->int:
+        return self._selected_injection_index
 
 
 
     @pyqtProperty(str, notify=_selected_injection_script_changed)
     def selectedInjectionId(self)->str:
         try:
-            id = self._selectedInjectionScript.getDefinitionId() + '_Injection'
+            id = self._selectedInjectionScript.getDefinitionId()
+            Logger.log('d', f'id = {id}')
         except AttributeError:
             id = ""
         return id
