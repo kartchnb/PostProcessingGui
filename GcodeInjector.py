@@ -187,7 +187,6 @@ class GcodeInjector(QObject, Extension):
         json_fileName = self._availableJsonFileNames[index]
         with open(json_fileName, 'r') as json_file:
             overlay_setting_data = json.load(json_file, object_pairs_hook = collections.OrderedDict)
-            Logger.log('d', f'overlay_setting_data = {overlay_setting_data}')
 
         # Overlay the settings onto the script's original settings
         setting_data = recursiveDictOverlay(new_script.getSettingData(), overlay_setting_data)
@@ -223,7 +222,6 @@ class GcodeInjector(QObject, Extension):
         
         try:
             id = self._injection_script_master.getDefinitionId()
-            Logger.log('d', f'id = {id}')
         except AttributeError:
             id = ""
         return id

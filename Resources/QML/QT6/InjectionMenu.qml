@@ -75,7 +75,7 @@ UM.Dialog
                     {
                         if (manager.selectedInjectionIndex != currentIndex)
                         {
-                            selectedInjectionIndex = currentIndex
+                            manager.selectedInjectionIndex = currentIndex
                         }
                     }
                 }

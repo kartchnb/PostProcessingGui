@@ -1,20 +1,20 @@
 {
-    "key": "PauseAtHeight_Injection",
-    "layer_setting": "pause_layer",
-    "settings":
-    { 
-        "pause_at":
+    "key": "ChangeAtZ_Injection",
+    "layer_setting": "b_targetL",
+    "settings": 
+    {
+        "a_trigger": 
         {
             "default_value": "layer_no",
             "enabled": false
         },
-        "pause_height":
+        "b_targetZ": 
         {
             "enabled": false
         },
-        "pause_layer":
+        "b_targetL": 
         {
             "enabled": false
         }
-   }
+    }
 }
