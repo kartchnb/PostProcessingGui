@@ -1,6 +1,6 @@
 {
     "key": "ChangeAtZ_Injection",
-    "layer_setting": "b_targetL",
+    "layer_number_key": "b_targetL",
     "settings": 
     {
         "a_trigger": 

@@ -203,6 +203,11 @@ class GcodeInjector(QObject, Extension):
         # Hack - Don't reslice after script changes because that will mess up the preview display
         new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
 
+        layer_number_key = new_script.getSettingData()["layer_number_key"]
+        layer_number = new_script.getSettingValueByKey(layer_number_key)
+        Logger.log('d', f'layer_number = {layer_number}')
+        Message(f'layer_number = {layer_number}').show()
+
         # Update the master script
         self._selected_injection_index = index
         self._injection_script_master = new_script
@@ -246,10 +251,16 @@ class GcodeInjector(QObject, Extension):
 
     @pyqtProperty(list, notify=_injections_changed)
     def injectedLayerNumbers(self)->list:
-        layer_numbers = list(self._injections.keys())
-        layer_numbers.sort()
+        layer_numbers = []
+        for script in self._postProcessingPlugin._script_list:
+            try:
+                layer_number_key = script.getSettingData()['layer_number_key']
+                layer_number = script.getSettingValueByKey(layer_number_key)
+                layer_numbers.append(layer_number)
+            except KeyError:
+                pass
         return layer_numbers
-    
+
 
 
     @pyqtSlot()
@@ -280,10 +291,16 @@ class GcodeInjector(QObject, Extension):
 
 
     def _addInjection(self, layer_number:int)->None:
-        injection_script_copy = copy.copy(self._injection_script_master)
-        self._injections[layer_number] = injection_script_copy
-        self._injections_changed.emit()
+        script = copy.copy(self._injection_script_master)
 
+        layer_number_key = script.getSettingData()['layer_number_key']
+        layer_number = script.getSettingValueByKey(layer_number_key)
+        script._stack.getTop().setProperty(layer_number_key, 'value', layer_number)
+        
+        self._postProcessingPlugin._script_list.append(script)
+        self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
+        self._postProcessingPlugin.scriptListChanged.emit()
+        
 
 
     def _removeInjection(self, layer_number:int)->None:
