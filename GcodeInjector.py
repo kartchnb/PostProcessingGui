@@ -67,7 +67,7 @@ class GcodeInjector(QObject, Extension):
 
 
     # All QT signals are here
-    _show_injection_panel_changed = pyqtSignal()
+    _can_add_injections_changed = pyqtSignal()
     _loaded_script_list_changed = pyqtSignal()
     _injection_script_master_changed = pyqtSignal()
     _injections_changed = pyqtSignal()
@@ -145,15 +145,18 @@ class GcodeInjector(QObject, Extension):
 
 
 
-    @pyqtProperty(bool, notify=_show_injection_panel_changed)
-    def showInjectionPanel(self)->bool:
-        return True # TODO: Delete this line
-        return self._show_injection_panel
-        
-    @showInjectionPanel.setter
-    def showInjectionPanel(self, value:bool)->None:
+    @pyqtProperty(bool, notify=_can_add_injections_changed)
+    def canAddInjections(self)->bool:
+        try:
+            state = CuraApplication.getInstance().getController().getActiveView().getActivity()
+        except AttributeError:
+            state = False
+        return state
+            
+    @canAddInjections.setter
+    def canAddInjections(self, value:bool)->None:
         self._show_injection_panel = value
-        self._show_injection_panel_changed.emit()
+        self._can_add_injections_changed.emit()
 
 
 
@@ -296,12 +299,7 @@ class GcodeInjector(QObject, Extension):
         ''' Called when the sliced state of the SimulationView has changed or the view has changed
             If the scene has been sliced, the activity is True, otherwise False '''
         
-        try:
-            state = CuraApplication.getInstance().getController().getActiveView().getActivity()
-        except AttributeError:
-            state = False
-
-        self.showInjectionPanel = state
+        self._can_add_injections_changed.emit()
 
 
 
