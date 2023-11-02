@@ -253,7 +253,7 @@ class GcodeInjector(QObject, Extension):
             layer_number_key = script.getSettingValueByKey('layer_number_key')
             if layer_number_key is not None:
                 layer_number = script.getSettingValueByKey(layer_number_key)
-                layer_numbers.append(layer_number)
+                layer_numbers.append({'layer_number': layer_number, 'script_name': script.getSettingData()['name']})
         return layer_numbers
 
 

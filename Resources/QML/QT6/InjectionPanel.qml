@@ -12,14 +12,14 @@ RowLayout
         model: manager.injectedLayerNumbers
         Cura.SecondaryButton
         {
-            property int layer_number: modelData
+            property int layer_number: modelData['layer_number']
 
             height: UM.Theme.getSize('action_button').height
             text: layer_number.toString()
 
             tooltip:
             {
-                return 'Left-click to go to layer<br><br>Right-click to delete'
+                return modelData['script_name'] + '<br><br>Left-click to go to layer<br>Right-click to delete'
             }
             toolTipContentAlignment: UM.Enums.ContentAlignment.AlignLeft
 
