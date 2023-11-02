@@ -1,11 +1,19 @@
 {
     "key": "ChangeAtZ_Injection",
-    "layer_number_key": "b_targetL",
     "settings": 
     {
+        "layer_number_key":
+        {
+            "label": "layer_number_key",
+            "description": "layer_number_key",
+            "type": "str",
+            "default_value": "b_targetL",
+            "enabled": false
+        },
         "a_trigger": 
         {
             "default_value": "layer_no",
+            "value": "layer_no",
             "enabled": false
         },
         "b_targetZ": 

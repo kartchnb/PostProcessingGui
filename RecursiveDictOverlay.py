@@ -3,7 +3,7 @@ def recursiveDictOverlay(original, overlay):
             This differs from the dict.update() function because recursively handles embedded dictionaries
             '''
         
-        # Iterate over each dictionary entry
+        # Iterate over each entry in the overlay
         for key, value in overlay.items():
             # If this value is an embedded dictionary, then handle it recursively
             if isinstance(value, type(original)):

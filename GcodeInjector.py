@@ -28,6 +28,7 @@ from UM.Settings.ContainerFormatError import ContainerFormatError
 from UM.Settings.ContainerRegistry import ContainerRegistry
 from UM.Settings.DefinitionContainer import DefinitionContainer
 from UM.Settings.SettingDefinition import DefinitionPropertyType
+from UM.Settings.SettingDefinition import SettingDefinition
 from UM.Trust import Trust, TrustBasics
 from UM.i18n import i18nCatalog
 from cura import ApplicationMetadata
@@ -182,7 +183,7 @@ class GcodeInjector(QObject, Extension):
     def setSelectedInjectionIndex(self, index:int)->None:
         ''' Create a new master script to use for injections '''
 
-        # Create the injection script, but don't initialize yet
+        # Create the injection script
         selected_script_key = self.availableInjectionKeys[index]
         new_script = self._postProcessingPlugin._loaded_scripts[selected_script_key]()
         
@@ -194,19 +195,15 @@ class GcodeInjector(QObject, Extension):
         # Overlay the settings onto the script's original settings
         setting_data = recursiveDictOverlay(new_script.getSettingData(), overlay_setting_data)
 
-        # Force the script to use the new, overlayed settings
+        # Hack override the script's settings with the overlaid settings
+        Logger.log('d', f'setting_data = {setting_data}')
         new_script.getSettingData = MethodType(lambda self: setting_data, new_script)
 
-        # Now, initialize the script
+        # Initialze the script now
         new_script.initialize()
 
         # Hack - Don't reslice after script changes because that will mess up the preview display
         new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
-
-        layer_number_key = new_script.getSettingData()["layer_number_key"]
-        layer_number = new_script.getSettingValueByKey(layer_number_key)
-        Logger.log('d', f'layer_number = {layer_number}')
-        Message(f'layer_number = {layer_number}').show()
 
         # Update the master script
         self._selected_injection_index = index
@@ -244,7 +241,7 @@ class GcodeInjector(QObject, Extension):
         try:
             id = self._injection_script_master.getStackId()
         except AttributeError:
-            id = ""
+            id = ''
         return id
     
 
@@ -253,12 +250,10 @@ class GcodeInjector(QObject, Extension):
     def injectedLayerNumbers(self)->list:
         layer_numbers = []
         for script in self._postProcessingPlugin._script_list:
-            try:
-                layer_number_key = script.getSettingData()['layer_number_key']
+            layer_number_key = script.getSettingValueByKey('layer_number_key')
+            if layer_number_key is not None:
                 layer_number = script.getSettingValueByKey(layer_number_key)
                 layer_numbers.append(layer_number)
-            except KeyError:
-                pass
         return layer_numbers
 
 
@@ -272,9 +267,7 @@ class GcodeInjector(QObject, Extension):
 
     @pyqtSlot()
     def onInsertInjectionButtonRightClicked(self)->None:
-        self._injectionMenu.show()
-        
-
+        self._injectionMenu.show()   
 
 
 
@@ -291,24 +284,54 @@ class GcodeInjector(QObject, Extension):
 
 
     def _addInjection(self, layer_number:int)->None:
-        script = copy.copy(self._injection_script_master)
+        # Create a new script with the same type as the script master
+        new_script = type(self._injection_script_master)()
+        new_script.initialize()
 
-        layer_number_key = script.getSettingData()['layer_number_key']
-        layer_number = script.getSettingValueByKey(layer_number_key)
-        script._stack.getTop().setProperty(layer_number_key, 'value', layer_number)
+        # Hack - Don't reslice after script changes because that will mess up the preview display
+        new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
+
+        # Transfer settings from the script master
+        instanceContainer = copy.deepcopy(self._injection_script_master._stack.getTop())
+        new_script._stack.replaceContainer(0, instanceContainer)
+
+        # Hack - Mark this script as an injection
+        definitionContainer = self._injection_script_master._stack.getBottom()
+        definitions = definitionContainer.findDefinitions(key='layer_number_key')
+        definition = definitions[0]
+        new_script._stack.getBottom().addDefinition(definition)
         
-        self._postProcessingPlugin._script_list.append(script)
-        self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
+        # Set the layer number for this post-processing script
+        layer_number_key = new_script.getSettingValueByKey('layer_number_key')
+        new_script._stack.getTop().setProperty(layer_number_key, 'value', layer_number)
+
+        for index in range(0, len(self._postProcessingPlugin._script_list)):
+            script = self._postProcessingPlugin._script_list[index]
+            layer_number_key = script.getSettingValueByKey('layer_number_key')
+            if layer_number_key is not None:
+                script_layer_number = script.getSettingValueByKey(layer_number_key)
+                if script_layer_number == layer_number:
+                    self._postProcessingPlugin._script_list[index] = new_script
+                    break            
+        else:
+            self._postProcessingPlugin._script_list.append(new_script)
+            self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
+
+        # Add the post-processing script to the PostProcessingPlugin's script list        
         self._postProcessingPlugin.scriptListChanged.emit()
-        
+
 
 
     def _removeInjection(self, layer_number:int)->None:
-        try:
-            del self._injections[layer_number]
-            self._injections_changed.emit()
-        except IndexError:
-            pass
+        for index in range(0, len(self._postProcessingPlugin._script_list)):
+            script = self._postProcessingPlugin._script_list[index]
+            layer_number_key = script.getSettingValueByKey('layer_number_key')
+            if layer_number_key is not None:
+                script_layer_number = script.getSettingValueByKey(layer_number_key)
+                if script_layer_number == layer_number:
+                    del(self._postProcessingPlugin._script_list[index])
+                    self._postProcessingPlugin.scriptListChanged.emit()
+                    return
 
 
 
@@ -333,8 +356,16 @@ class GcodeInjector(QObject, Extension):
         # Create the injection panel
         CuraApplication.getInstance().addAdditionalComponent('saveButton', self._injectionPanel)
 
-        # Listen for changes to the post-processing script list
+        # Listen for changes to the post-processing scripts
         self._postProcessingPlugin.loadedScriptListChanged.connect(self._loaded_script_list_changed)
+        self._postProcessingPlugin.scriptListChanged.connect(self._onPostProcessingScriptsChanged)
+
+        self._injections_changed.emit()
 
         # Don't need this callback anymore
         CuraApplication.getInstance().mainWindowChanged.disconnect(self._onMainWindowChanged)
+
+
+
+    def _onPostProcessingScriptsChanged(self)->None:
+        self._injections_changed.emit()
