@@ -23,7 +23,7 @@ UM.Dialog
         // Whenever the window is closed (either via the "Close" button or the X on the window frame), we want to update it in the stack.
         if (!visible)
         {
-//            manager.writeScriptsToStack()
+            manager.writeSettingsToStack()
         }
     }
 

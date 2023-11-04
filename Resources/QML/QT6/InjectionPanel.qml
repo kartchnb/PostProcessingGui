@@ -7,6 +7,8 @@ import Cura 1.7 as Cura
 
 RowLayout
 {
+    visible: manager.canAddInjections
+
     Repeater
     {
         model: manager.injectedLayerNumbers
@@ -48,7 +50,6 @@ RowLayout
         height: UM.Theme.getSize('action_button').height
         iconSource: Qt.resolvedUrl('../../Images/InjectorButtonIcon.svg')
         fixedWidthMode: false
-        enabled: manager.canAddInjections
        
         MouseArea
         {

@@ -36,14 +36,14 @@ from cura.CuraApplication import CuraApplication
 
 from .RecursiveDictOverlay import recursiveDictOverlay
 
-i18n_catalog = i18nCatalog("cura")
+i18n_catalog = i18nCatalog('cura')
 
 if TYPE_CHECKING:
     from .Script import Script
 
 
 class GcodeInjector(QObject, Extension):
-    """Extension type plugin that enables pre-written scripts to post process g-code files."""
+    '''Extension type plugin that enables pre-written scripts to post process g-code files.'''
 
 
 
@@ -55,15 +55,17 @@ class GcodeInjector(QObject, Extension):
         Extension.__init__(self)
 
         self._show_injection_panel = False
+        self._available_injection_scripts:Dict[str, Type(Script)] = []
         self._selected_injection_index = 0
         self._injection_script_master = None
         self._injections = {}
 
+        self._global_container_stack = Application.getInstance().getGlobalContainerStack()
+        if self._global_container_stack:
+            self._global_container_stack.metaDataChanged.connect(self._restoreScriptInfoFromMetadata)
+
         # Wait until the application is ready before completing initializing
         CuraApplication.getInstance().mainWindowChanged.connect(self._onMainWindowChanged)
-
-        # Intercept gcode before it is sent to its destination
-        Application.getInstance().getOutputDeviceManager().writeStarted.connect(self.onWriteStarted)
 
 
 
@@ -141,11 +143,6 @@ class GcodeInjector(QObject, Extension):
 
 
 
-    def onWriteStarted(self, output_device)->None:
-        Message('Write Started').show()
-
-
-
     @pyqtProperty(bool, notify=_can_add_injections_changed)
     def canAddInjections(self)->bool:
         try:
@@ -196,7 +193,6 @@ class GcodeInjector(QObject, Extension):
         setting_data = recursiveDictOverlay(new_script.getSettingData(), overlay_setting_data)
 
         # Hack override the script's settings with the overlaid settings
-        Logger.log('d', f'setting_data = {setting_data}')
         new_script.getSettingData = MethodType(lambda self: setting_data, new_script)
 
         # Initialze the script now
@@ -208,6 +204,7 @@ class GcodeInjector(QObject, Extension):
         # Update the master script
         self._selected_injection_index = index
         self._injection_script_master = new_script
+
         self._injection_script_master_changed.emit()
 
 
@@ -228,7 +225,7 @@ class GcodeInjector(QObject, Extension):
         try:
             id = self._injection_script_master.getDefinitionId()
         except AttributeError:
-            id = ""
+            id = ''
         return id
     
 
@@ -346,6 +343,9 @@ class GcodeInjector(QObject, Extension):
     def _onMainWindowChanged(self)->None:
         ''' The application should be ready at this point '''
 
+        # Don't need this callback anymore
+        CuraApplication.getInstance().mainWindowChanged.disconnect(self._onMainWindowChanged)
+
         # Initialize the script master
         self.setSelectedInjectionIndex(self._selected_injection_index)
 
@@ -355,17 +355,122 @@ class GcodeInjector(QObject, Extension):
 
         # Create the injection panel
         CuraApplication.getInstance().addAdditionalComponent('saveButton', self._injectionPanel)
+        self._injections_changed.emit()
 
         # Listen for changes to the post-processing scripts
         self._postProcessingPlugin.loadedScriptListChanged.connect(self._loaded_script_list_changed)
         self._postProcessingPlugin.scriptListChanged.connect(self._onPostProcessingScriptsChanged)
 
-        self._injections_changed.emit()
+        self._global_container_stack = Application.getInstance().getGlobalContainerStack()
+        if self._global_container_stack:
+            self._global_container_stack.metaDataChanged.connect(self._restoreScriptInfoFromMetadata)
+        self._restoreScriptInfoFromMetadata()
 
-        # Don't need this callback anymore
-        CuraApplication.getInstance().mainWindowChanged.disconnect(self._onMainWindowChanged)
+        self._injections_changed.emit()
 
 
 
     def _onPostProcessingScriptsChanged(self)->None:
+        self._injections_changed.emit()
+
+
+
+    def _restoreScriptInfoFromMetadata(self)->None:
+        Message('Restoring settings from metadata').show()
+        Logger.log('d', 'Restoring settings from metadata')
+        new_stack = self._global_container_stack
+        if new_stack is None:
+            Logger.log('d', 'new_stack is None')
+            Logger.log('d', f'But Application.getInstance().getGlobalContainerStack() = {Application.getInstance().getGlobalContainerStack()}')
+            return
+
+        settings = new_stack.getMetaDataEntry('gcode_injection_settings')
+        try:
+            settings = settings.replace(r'\\\n', '\n').replace(r'\\\\', '\\\\')  # Unescape escape sequences.
+        except Exception as e:
+            Logger.log('e', f'Exception = {e}')
+            raise
+        Logger.log('d', f'settings = {settings}')
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.optionxform = str  # type: ignore  # Don't transform the setting keys as they are case-sensitive.
+        try:
+            parser.read_string(settings)
+        except configparser.Error as e:
+            Logger.error('Stored GcodeInjector settings have syntax errors: {err}'.format(err = str(e)))
+            return
+    
+        for script_name, settings in parser.items():  # There should only be one, really! Otherwise we can't guarantee the order or allow multiple uses of the same script.
+            if script_name == 'DEFAULT':  # ConfigParser always has a DEFAULT section, but we don't fill it. Ignore this one.
+                continue
+            if script_name not in self._availableJsonIds:  # Don't know this post-processing plug-in.
+                Logger.log('e',
+                            'Unknown post-processing script {script_name} was encountered in this global stack.'.format(
+                                script_name=script_name))
+                continue
+            new_script = self._postProcessingPlugin._loaded_scripts[script_name]()
+            new_script.initialize()
+            for setting_key, setting_value in settings.items():  # Put all setting values into the script.
+                if new_script._instance is not None:
+                    new_script._instance.setProperty(setting_key, 'value', setting_value)
+
+            index = self.availableInjectionKeys.index(script_name)
+            self.setSelectedInjectionIndex(index)
+            self._selected_injection_index = index
+            self._injection_script_master = new_script
+
+            self._injection_script_master_changed.emit()
+
+
+
+    @pyqtSlot()
+    def writeSettingsToStack(self) -> None:
+        Message('Writing settings to stack').show()
+        parser = configparser.ConfigParser(interpolation = None)  # We'll encode the script as a config with one section. The section header is the key and its values are the settings.
+        parser.optionxform = str  # type: ignore # Don't transform the setting keys as they are case-sensitive.
+        script_name = self._injection_script_master.getSettingData()['key']
+        parser.add_section(script_name)
+        for key in self._injection_script_master.getSettingData()['settings']:
+            value = self._injection_script_master.getSettingValueByKey(key)
+            Logger.log('d', f'Writing to parser: "{key}" = "{value}"')
+            parser[script_name][key] = str(value)
+        serialized = io.StringIO()  # ConfigParser can only write to streams. Fine.
+        parser.write(serialized)
+        serialized.seek(0)
+        settings = serialized.read()
+        Logger.log('d', 'read settings')
+        settings = settings.replace('\\\\', r'\\\\').replace('\n', r'\\\n')  # Escape newlines because configparser sees those as section delimiters.
+
+        Logger.log('d', f'settings = "{settings}"')
+
+        if self._global_container_stack is None:
+            return
+
+        # Ensure we don't get triggered by our own write.
+        self._global_container_stack.metaDataChanged.disconnect(self._restoreScriptInfoFromMetadata)
+
+        if 'gcode_injection_settings' not in self._global_container_stack.getMetaData():
+            self._global_container_stack.setMetaDataEntry('gcode_injection_settings', '')
+
+        self._global_container_stack.setMetaDataEntry('gcode_injection_settings', settings)
+
+        # We do want to listen to other events.
+        self._global_container_stack.metaDataChanged.connect(self._restoreScriptInfoFromMetadata)
+
+
+
+    def _onGlobalContainerStackChanged(self) -> None:
+        '''When the global container stack is changed, swap out the list of active scripts.'''
+        Message('Global Container stack changed').show()
+        if self._global_container_stack:
+            self._global_container_stack.metaDataChanged.disconnect(self._restoreScriptInfoFromMetadata)
+
+        self._global_container_stack = Application.getInstance().getGlobalContainerStack()
+
+        if self._global_container_stack:
+            self._global_container_stack.metaDataChanged.connect(self._restoreScriptInfoFromMetadata)
+        self._restoreScriptInfoFromMetadata()
+
+
+
+    def _onPostProcessingScriptsPropertyChanged(self)->None:
         self._injections_changed.emit()
