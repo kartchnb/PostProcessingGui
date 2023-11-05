@@ -20,10 +20,10 @@ UM.Dialog
     backgroundColor: UM.Theme.getColor("main_background")
     onVisibleChanged:
     {
-        // Whenever the window is closed (either via the "Close" button or the X on the window frame), we want to update it in the stack.
+        // Save injection scripts and settings whenever the window is closed
         if (!visible)
         {
-            manager.writeSettingsToStack()
+            manager.saveInjectionScripts()
         }
     }
 
@@ -67,7 +67,7 @@ UM.Dialog
                 {
                     id: injectionSelection
                     Layout.fillWidth: true
-                    model: manager.availableInjectionLabels
+                    model: manager.availableInjectionModel
                     textRole: 'name'
                     currentIndex: manager.selectedInjectionIndex
 

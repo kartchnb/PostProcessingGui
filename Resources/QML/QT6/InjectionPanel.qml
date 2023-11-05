@@ -7,11 +7,9 @@ import Cura 1.7 as Cura
 
 RowLayout
 {
-    visible: manager.canAddInjections
-
     Repeater
     {
-        model: manager.injectedLayerNumbers
+        model: manager.injectionModel
         Cura.SecondaryButton
         {
             property int layer_number: modelData['layer_number']
@@ -28,11 +26,11 @@ RowLayout
             MouseArea
             {
                 anchors.fill: parent
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
 
                 onClicked:
                 {
-                    if (mouse.button === Qt.RightButton)
+                    if (mouse.button === Qt.RightButton || mouse.button == Qt.MiddleButton)
                     {
                         manager.onExistingInjectionButtonRightClicked(layer_number)
                     }
@@ -50,7 +48,13 @@ RowLayout
         height: UM.Theme.getSize('action_button').height
         iconSource: Qt.resolvedUrl('../../Images/InjectorButtonIcon.svg')
         fixedWidthMode: false
-       
+        enabled: manager.canAddInjections
+
+        tooltip:
+        {
+            return manager.selectedInjectionName
+        }
+
         MouseArea
         {
             anchors.fill: parent
