@@ -52,7 +52,7 @@ RowLayout
 
         tooltip:
         {
-            return manager.selectedInjectionName
+            return manager.selectedInjectionName + '<br><br>Left-click to insert an injection<br>Right-click to modify the injection'
         }
 
         MouseArea

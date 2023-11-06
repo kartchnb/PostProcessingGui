@@ -61,16 +61,14 @@ class GcodeInjector(QObject, Extension):
         self._injection_scripts:Dict[str, Type(Script)] = {} # Dict[script name, script class]
         self._selected_injection_index:int = 0
 
-        self._global_container_stack = Application.getInstance().getGlobalContainerStack()
-        if self._global_container_stack:
-            self._global_container_stack.metaDataChanged.connect(self._restoreInjectionScripts)
+        self._global_container_stack = None
 
         # Wait until the application is ready before completing initializing
         CuraApplication.getInstance().mainWindowChanged.connect(self._onMainWindowChanged)
 
 
 
-    # All QT signals are here
+    # All PyQt signals are here
     _can_add_injections = pyqtSignal()
     _injection_scripts_changed = pyqtSignal()
     _selected_injection_index_changed = pyqtSignal()
@@ -197,8 +195,6 @@ class GcodeInjector(QObject, Extension):
 
         # Update the master script
         self._selected_injection_index = index
-        Message(f'Selected Injection Index set to {self._selected_injection_index}')
-        Logger.log('d', f'Selected Injection Index set to {self._selected_injection_index}')
         self._selected_injection_index_changed.emit()
 
 
@@ -215,7 +211,12 @@ class GcodeInjector(QObject, Extension):
     def selectedInjectionName(self)->str:
         ''' Return the name of the selected injection '''
 
-        return self.availableInjectionNames[self._selected_injection_index]
+        try:
+            name = self.availableInjectionNames[self._selected_injection_index]
+        except IndexError:
+            name = ''
+
+        return name
 
 
 
@@ -256,17 +257,26 @@ class GcodeInjector(QObject, Extension):
         # Iterate over each active post-processing script
         for script in self._postProcessingPlugin._script_list:
             
+            self._log(f'script = "{script}"')
             # Determine the key that is associated with the layer number
             layer_number_key = script.getSettingValueByKey('layer_number_key')
 
+            self._log(f'layer_number_key = "{layer_number_key}"')
             # This script is an injection only if it has a 'layer_number_key' setting
             if layer_number_key is not None:
                 
                 # Record the injection layer number
                 layer_number = script.getSettingValueByKey(layer_number_key)
+                self._log(f'layer_number = "{layer_number}"')
                 layer_model.append({'layer_number': layer_number, 'script_name': script.getSettingData()['name']})
 
+        # Sort the entries by layer number
         sorted_layer_model = sorted(layer_model, key=lambda x: x['layer_number'])
+
+        nums = [str(d['layer_number']) for d in sorted_layer_model]
+        num_str = ', '.join(nums)
+        self._log(f'identified injection layers: [{num_str}]')
+
         return sorted_layer_model
 
 
@@ -292,7 +302,7 @@ class GcodeInjector(QObject, Extension):
     def onExistingInjectionButtonLeftClicked(self, layer_number:int)->None:
         ''' When an injection button is left-clicked, the associated layer is selected in the SimulationView '''
 
-        self._simulationView.setLayer(layer_number)
+        self._simulationView.setLayer(layer_number - 1) # Subtract one because of how Cura numbers its layers in the GUI
 
 
 
@@ -300,6 +310,7 @@ class GcodeInjector(QObject, Extension):
     def onExistingInjectionButtonRightClicked(self, layer_number:int)->None:
         ''' When an injection button is right-clicked, the injection is deleted '''
 
+        Message(f'onExistingInjectionButtonRightClicked called for layer {layer_number}').show()
         self._removeInjection(layer_number)
 
 
@@ -307,6 +318,7 @@ class GcodeInjector(QObject, Extension):
     def _addInjection(self, layer_number:int)->None:
         ''' Add an injection at the given layer based on the currently-selected injection script '''
 
+        self._log(f'_addInjection for layer {layer_number}')
         # Create a new post-processing script based on the currently-selected injection script
         selected_injection_name = self.availableInjectionNames[self._selected_injection_index]
         injection_script = self._injection_scripts[selected_injection_name]
@@ -339,6 +351,8 @@ class GcodeInjector(QObject, Extension):
                 script_layer_number = script.getSettingValueByKey(layer_number_key)
                 if script_layer_number == layer_number:
                     self._postProcessingPlugin._script_list[index] = new_script
+
+                    Message(f'Replaced the injection at layer {layer_number} with "{selected_injection_name}"')
                     break            
 
         # If there is no injection at this layer, add one
@@ -346,14 +360,17 @@ class GcodeInjector(QObject, Extension):
             self._postProcessingPlugin._script_list.append(new_script)
             self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
 
-        # Notify the PostProcessingPlugin to update itself      
-        self._postProcessingPlugin.scriptListChanged.emit()
+            Message(f'Added an injection at layer {layer_number} for "{selected_injection_name}"')
+
+            # Notify the PostProcessingPlugin to update itself      
+            self._postProcessingPlugin.scriptListChanged.emit()
 
 
 
     def _removeInjection(self, layer_number:int)->None:
         ''' Remove an injection from the list of active post-processing scripts in the PostProcessingPlugin '''
 
+        self._log(f'_removeInjection for layer {layer_number}')
         # Iterate over each active post-processing script
         for index in range(0, len(self._postProcessingPlugin._script_list)):
 
@@ -391,6 +408,7 @@ class GcodeInjector(QObject, Extension):
     def _onMainWindowChanged(self)->None:
         ''' The application should be ready at this point so most plugin initialization is done here '''
 
+        self._log('_onMainWindowChanged')
         # We won't be needing this callback anymore (it's probably not necessary to disconnect)
         CuraApplication.getInstance().mainWindowChanged.disconnect(self._onMainWindowChanged)
 
@@ -401,25 +419,28 @@ class GcodeInjector(QObject, Extension):
 
         # Connect to the simulation view
         self._simulationView.activityChanged.connect(self._onActivityChanged)
-        Application.getInstance().getController().activeViewChanged.connect(self._onActivityChanged)
+        CuraApplication.getInstance().getController().activeViewChanged.connect(self._onActivityChanged)
 
         # Restore or initialize the injection scripts
         self._restoreInjectionScripts()
 
         # Listen for changes to the active post-processing scripts
-        self._postProcessingPlugin.scriptListChanged.connect(self._onPostProcessingScriptsChanged)
+        #self._postProcessingPlugin.scriptListChanged.connect(self._onActivePostProcessingScriptsChanged)
+        self._postProcessingPlugin.scriptListChanged.connect(self._active_injections_changed)
+
+        # Make sure the injection panel gets updated for the first time
+        self._active_injections_changed.emit()
+        self._postProcessingPlugin.scriptListChanged.emit()
 
         # Add the injection panel to Cura's UI
         CuraApplication.getInstance().addAdditionalComponent('saveButton', self._injectionPanel)
 
-        # Make sure the injection panel gets updated for the first time
-        self._active_injections_changed.emit()
 
 
-
-    def _onPostProcessingScriptsChanged(self)->None:
+    def _onActivePostProcessingScriptsChanged(self)->None:
         ''' Called when post-processing scripts are added, removed, or rearranged by the PostProcessingPlugin '''
 
+        self._log('_onActivePostProcessingScriptsChanged')
         # This may or may not involve injections, so we'll need to update just in case
         self._active_injections_changed.emit()
 
@@ -428,6 +449,7 @@ class GcodeInjector(QObject, Extension):
     def _restoreInjectionScripts(self)->None:
         ''' Restore or initialize injection scripts and their settings '''
 
+        self._log('restoreInjectionScripts')
         selected_injection_name = None
 
         # Start by loading all available injections with default settings
@@ -487,14 +509,13 @@ class GcodeInjector(QObject, Extension):
                     Logger.log('e', f'Unknown post-processing script "{injection_name}" was encountered in this global stack.')
                     continue
 
-
             # Determine the selected injection index
             try:
                 self.setSelectedInjectionIndex(self.availableInjectionNames.index(selected_injection_name))
             except ValueError:
                 self.setSelectedInjectionIndex(0)
 
-        self._injection_scripts_changed.emit()
+        self._active_injections_changed.emit()
 
 
 
@@ -502,6 +523,7 @@ class GcodeInjector(QObject, Extension):
     def saveInjectionScripts(self) -> None:
         ''' Save injection scripts and settings to the global container stack '''
 
+        self._log('saveInjectionScripts')
         # Can't do anything if there's no global container stack to write to
         if self._global_container_stack is None:
             return
@@ -534,7 +556,7 @@ class GcodeInjector(QObject, Extension):
                     parser[injection_name][key] = str(value)
     
             except AttributeError:
-                # If this occurs, this is probably a plugin setting that needs to be handled differently
+                # If this occurs, it means this is probably a plugin setting that needs to be handled differently
                 section_name = injection_name
                 plugin_settings_dict = injection_script
                 
@@ -559,6 +581,7 @@ class GcodeInjector(QObject, Extension):
 
         # We don't want this write to trigger a metadata changed event
         self._global_container_stack.metaDataChanged.disconnect(self._restoreInjectionScripts)
+        self._postProcessingPlugin._global_container_stack.metaDataChanged.disconnect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
 
         # Initialize the metadata entry if it's not already present
         if self._plugin_metadata_id not in self._global_container_stack.getMetaData():
@@ -567,8 +590,10 @@ class GcodeInjector(QObject, Extension):
         # Save the injections scripts settings to metadata
         self._global_container_stack.setMetaDataEntry(self._plugin_metadata_id, injection_settings_string)
 
+        self._log(f'Saved "{injection_settings_string}"')
         # Continue listening for metadata changes
         self._global_container_stack.metaDataChanged.connect(self._restoreInjectionScripts)
+        self._postProcessingPlugin._global_container_stack.metaDataChanged.connect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
 
 
 
@@ -629,3 +654,10 @@ class GcodeInjector(QObject, Extension):
         new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
 
         return new_script
+
+
+
+    # Todo: Delete this function and remove all trace
+    def _log(self, message):
+        Message(message).show()
+        Logger.log('d', message)
