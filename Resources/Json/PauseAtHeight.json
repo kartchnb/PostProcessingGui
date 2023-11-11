@@ -9,7 +9,7 @@
             "description": "layer_number_key",
             "type": "str",
             "default_value": "pause_layer",
-            "enabled": true
+            "enabled": false
         },
         "pause_at":
         {

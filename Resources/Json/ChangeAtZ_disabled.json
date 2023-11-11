@@ -9,13 +9,13 @@
             "description": "layer_number_key",
             "type": "str",
             "default_value": "b_targetL",
-            "enabled": true
+            "enabled": false
         },
         "a_trigger": 
         {
             "default_value": "layer_no",
             "value": "layer_no",
-            "enabled": false
+            "enabled": true
         },
         "b_targetZ": 
         {

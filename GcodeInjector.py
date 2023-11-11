@@ -661,9 +661,9 @@ class GcodeInjector(QObject, Extension):
 
         # Restore the index of the selected injection script
         if 'gcodeinjector_selected_injection_script' in self._global_container_stack.getMetaData():
-            injection_script_name = self._global_container_stack.getMetaDataEntry('gcodeinjector_selected_injection_script')
+            injection_script_id = self._global_container_stack.getMetaDataEntry('gcodeinjector_selected_injection_script')
             try:
-                selected_script_index = self.availableInjectionIds.index(injection_script_name)
+                selected_script_index = self.availableInjectionIds.index(injection_script_id)
             except ValueError:
                 selected_script_index = 0
             self._selected_injection_index = selected_script_index
