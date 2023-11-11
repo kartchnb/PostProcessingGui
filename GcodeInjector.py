@@ -9,6 +9,7 @@ from glob import glob
 import io  # To allow configparser to write to a string.
 import json
 import os.path
+import re
 from types import MethodType
 from typing import Dict, Type, TYPE_CHECKING, List
 
@@ -419,6 +420,117 @@ class GcodeInjector(QObject, Extension):
         # Create the injection panel
         CuraApplication.getInstance().addAdditionalComponent('saveButton', self._injectionPanel)
 
+        # Run a callback when a write is started
+        Application.getInstance().getOutputDeviceManager().writeStarted.connect(self._onWriteStarted)
+
+
+
+    def _onWriteStarted(self, output_device)->None:
+        ''' Called whenver gcode is being written out to an output device or file '''
+
+        # If there are no injections, there is nothing to be processed
+        injected_layer_numbers = {x['layer_number'] for x in self.activeInjectionsModel}
+        if len(injected_layer_numbers) == 0:
+            return 
+                
+        # Retrieve the g-code
+        scene = Application.getInstance().getController().getScene()
+
+        try:
+            # Proceed if the g-code is valid
+            gcode_dict = getattr(scene, 'gcode_dict')
+        except AttributeError:
+            # If there is no g-code, there's nothing more to do
+            return
+
+        try:
+            # Retrieve the g-code for the current build plate
+            active_build_plate_id = CuraApplication.getInstance().getMultiBuildPlateModel().activeBuildPlate
+            gcode = gcode_dict[active_build_plate_id]
+        except (TypeError, KeyError):
+            # If there is no g-code for the current build plate, there's nothing more to do
+            return
+        
+        # Keep track of the total elapsed time
+        layer_start_time = 0.0
+
+        message_lines = []
+        message_lines.append('The print will pause')
+
+        # Iterate over each layer in the gcode
+        for layer_number, elapsed_time in self._enumerateLayerElapsedTime(gcode):
+
+            if layer_number in injected_layer_numbers:
+                section_elapsed_time = elapsed_time - layer_start_time
+                layer_start_time = elapsed_time
+                time_string = self._secondsToTimeString(section_elapsed_time)
+                message_lines.append(f'    at layer {layer_number} after {time_string}')
+        
+        message = '\n'.join(message_lines)
+        Message(message).show()
+
+
+
+    def _enumerateLayerElapsedTime(self, gcode):
+        ''' Iterates over the lines in the gcode that is passed in and returns the elapsed time for each layer '''
+
+        # Keep track of the current layer number
+        layer_number = 0
+
+        # The regex to use when searching for new layers
+        layer_regex = re.compile(r';LAYER:(\d+)\s*')
+
+        # The regex to use when searching for layer elapsed times
+        elapsed_time_regex = re.compile(r';TIME_ELAPSED:(\d+\.?\d*)')
+
+        # Iterate over each "clump" of gcode
+        for clump in gcode:
+
+            # Split the layer into lines
+            lines = clump.split('\n')
+
+            # Iterate over each line in the layer
+            for line in lines:
+
+                # Check if this line marks the start of a new layer in the gcode
+                match = re.match(layer_regex, line)
+                if match:
+                    # Extract the layer number
+                    layer_number = int(match.group(1))
+
+                    # The layer number needs to be incremented by 1 to match Cura's layer numbers
+                    layer_number += 1
+
+                # Check if this line contains the elapsed time for the current layer
+                match = re.match(elapsed_time_regex, line)
+                if match:
+                    # Extract the elapsed time
+                    elapsed_time = float(match.group(1))
+
+                    # Yield the values for this line
+                    yield layer_number, elapsed_time
+
+
+
+    def _secondsToTimeString(self, seconds)->str:
+        ''' Converts a seconds value to a string containing hours, minutes, and seconds '''
+
+        hours = int(seconds / 3600)
+        seconds -= hours * 3600
+        minutes = int(seconds/60)
+        seconds -= minutes * 60
+
+        if hours > 0:
+            string = f'about {hours} hours and {minutes} minutes'
+        elif minutes > 1:
+            string = f'about {minutes} minutes'
+        elif minutes > 0:
+            string = f'{minutes} minute and {seconds} seconds'
+        else:
+            string = f'{seconds} seconds'
+
+        return  string
+    
 
 
     def _addInjection(self, layer_number:int)->None:
