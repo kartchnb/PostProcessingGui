@@ -17,11 +17,12 @@ RowLayout
             property int layer_number: modelData['layer_number']
 
             height: UM.Theme.getSize('action_button').height
+            enabled: manager.canAddInjections
             text: layer_number.toString()
 
             tooltip:
             {
-                return modelData['script_name'] + '<br><br>Left-click to go to layer<br>Right-click to delete'
+                return modelData['script_name'] + '<br><br>Left-click to go to the layer<br>Right-click to delete the injection'
             }
             toolTipContentAlignment: UM.Enums.ContentAlignment.AlignLeft
 
@@ -54,7 +55,7 @@ RowLayout
 
         tooltip:
         {
-            return manager.selectedInjectionName + '<br><br>Left-click to insert an injection<br>Right-click to modify the injection'
+            return manager.selectedInjectionName + ' is active<br><br>Left-click to insert an injection<br>Right-click to modify the injection'
         }
 
         MouseArea

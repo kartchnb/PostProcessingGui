@@ -144,7 +144,6 @@ class GcodeInjector(QObject, Extension):
 
             # If this post-processing script is an injection script, record its index
             script = self._postProcessingPlugin._script_list[index]
-            Logger.log('d', f'')
             layer_number_key = script.getSettingValueByKey('layer_number_key')
             if layer_number_key is not None:
                 indexes.append(index)   
@@ -178,21 +177,21 @@ class GcodeInjector(QObject, Extension):
 
 
     @pyqtProperty(list, notify=_injection_scripts_changed)
-    def availableInjectionNames(self)->list[str]:
-        ''' Return the names of the available injection scripts (without the file extension)
+    def availableInjectionIds(self)->list[str]:
+        ''' Return the ids of the available injection scripts (the JSON filename without the file extension)
             Post-Processing scripts are only supported if this plugin contains a matching overlay JSON file '''
         
-        names = list(self._injection_scripts.keys())
-        return names
+        ids = list(self._injection_scripts.keys())
+        return ids
     
 
 
     @pyqtProperty(list, notify=_injection_scripts_changed)
     def availableInjectionModel(self)->list[dict[str, str]]:
         ''' Return a model used to provide the injection menu with the injection names 
-            This just returns the list of availableInjectionNames as a list of dictionaries for QML '''
+            This just returns the list of availableInjectionIds as a list of dictionaries for QML '''
 
-        model = [{'name': name} for name in self.availableInjectionNames]
+        model = [{'name': self._injection_scripts[id].getSettingData()['name']} for id in self.availableInjectionIds]
         return model
     
 
@@ -218,13 +217,15 @@ class GcodeInjector(QObject, Extension):
     def selectedInjectionName(self)->str:
         ''' Return the name of the selected injection '''
 
+        id = self.availableInjectionIds[self._selected_injection_index]
         try:
-            name = self.availableInjectionNames[self._selected_injection_index]
-        except IndexError:
-            name = ''
-
+            script = self._injection_scripts[id]
+        except KeyError:
+            Logger.log('e', f'Failed to find the active script with id "{id}"')
+        
+        name = script.getSettingData()['name']
         return name
-
+    
 
 
     @pyqtProperty(str, notify=_selected_injection_index_changed)
@@ -233,8 +234,8 @@ class GcodeInjector(QObject, Extension):
             This ID is the value of the "key" entry in the injection script's JSON overlay '''
         
         try:
-            script_name = self.availableInjectionNames[self._selected_injection_index]
-            id = self._injection_scripts[script_name].getDefinitionId()
+            script_id = self.availableInjectionIds[self._selected_injection_index]
+            id = self._injection_scripts[script_id].getDefinitionId()
         except AttributeError:
             id = ''
         return id
@@ -247,8 +248,8 @@ class GcodeInjector(QObject, Extension):
             This is a unique numerical ID based on the script object instance and is set by the Script class in PostProcessingPlugins '''
         
         try:
-            script_name = self.availableInjectionNames[self._selected_injection_index]
-            id = self._injection_scripts[script_name].getStackId()
+            script_id = self.availableInjectionIds[self._selected_injection_index]
+            id = self._injection_scripts[script_id].getStackId()
         except AttributeError:
             id = ''
         return id
@@ -324,12 +325,12 @@ class GcodeInjector(QObject, Extension):
 
         # Can't do anything if there's no global container stack to write to
         if self._global_container_stack is None:
-            Logger.log('d', 'Unable to save injection scripts without a global container stack')
+            Logger.log('e', 'Unable to save injection scripts without a global container stack')
             return
 
         # Save the name of the selected injection script to the global container stack
-        injection_script_name = self.availableInjectionNames[self._selected_injection_index]
-        self._saveToGlobalContainerStack('gcodeinjector_selected_injection_script', injection_script_name)
+        injection_script_id = self.availableInjectionIds[self._selected_injection_index]
+        self._saveToGlobalContainerStack('gcodeinjector_selected_injection_script', injection_script_id)
 
         settings_list: List[str] = []
 
@@ -429,10 +430,13 @@ class GcodeInjector(QObject, Extension):
     def _onWriteStarted(self, output_device)->None:
         ''' Called whenver gcode is being written out to an output device or file '''
 
+        # Convert the list of layer numbers to a dictionary so it can be searched easily
+        injected_layers_dict = {x['layer_number']: x['script_name'] for x in self.activeInjectionsModel}
+
         # If there are no injections, there is nothing to be processed
-        injected_layer_numbers = {x['layer_number'] for x in self.activeInjectionsModel}
-        if len(injected_layer_numbers) == 0:
+        if len(injected_layers_dict) == 0:
             return 
+        
                 
         # Retrieve the g-code
         scene = Application.getInstance().getController().getScene()
@@ -461,21 +465,25 @@ class GcodeInjector(QObject, Extension):
         # Iterate over each layer in the gcode
         for layer_number, elapsed_time in self._enumerateLayerElapsedTime(gcode):
 
-            if layer_number in injected_layer_numbers:
+            if layer_number in injected_layers_dict.keys():
+
                 # Calculate elapsed times
                 section_elapsed_time = elapsed_time - layer_start_time
                 total_elapsed_time += section_elapsed_time
                 layer_start_time = elapsed_time
 
+                # Grab the script name
+                script_name = injected_layers_dict[layer_number]
+
                 # Compile a time string
                 decomposed_time_string = self._secondsToDecomposedTimeString(section_elapsed_time)
                 clock_time_string = self._secondsToClockTimeString(total_elapsed_time)
                 time_string = f'{decomposed_time_string} (about {clock_time_string})'
-                message_lines.append(f'after {time_string}')
+                message_lines.append(f'- {script_name} after {time_string}')
 
         # Assemble the message        
-        message = '\nthen '.join(message_lines)
-        message = 'The print will pause:\n' + message
+        message = '\n'.join(message_lines)
+        message = 'The following scripts will be activated:\n' + message
         Message(message, lifetime=0).show()
 
 
@@ -560,8 +568,8 @@ class GcodeInjector(QObject, Extension):
         ''' Add an injection at the given layer based on the currently-selected injection script '''
 
         # Create a new post-processing script based on the currently-selected injection master script
-        selected_injection_name = self.availableInjectionNames[self._selected_injection_index]
-        injection_script = self._injection_scripts[selected_injection_name]
+        selected_injection_id = self.availableInjectionIds[self._selected_injection_index]
+        injection_script = self._injection_scripts[selected_injection_id]
         new_script = type(injection_script)()
         new_script.initialize()
 
@@ -591,7 +599,6 @@ class GcodeInjector(QObject, Extension):
                 script_layer_number = script.getSettingValueByKey(layer_number_key)
                 if script_layer_number == layer_number:
                     self._postProcessingPlugin._script_list[index] = new_script
-                    Message(f'Replaced "{selected_injection_name}" at layer number {layer_number}').show()
                     break            
 
         # If there is no injection at this layer, add one
@@ -599,12 +606,10 @@ class GcodeInjector(QObject, Extension):
             self._postProcessingPlugin._script_list.append(new_script)
             self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
 
-            # Notify the PostProcessingPlugin to update itself      
-            self._postProcessingPlugin.scriptListChanged.emit()
+        self._postProcessingPlugin.scriptListChanged.emit()
+        self._active_injections_changed.emit()
 
         self._saveInjectionIndexes()
-
-        self._active_injections_changed.emit()
 
 
 
@@ -632,7 +637,12 @@ class GcodeInjector(QObject, Extension):
                     self._active_injections_changed.emit()
 
                     # There's no need to search any further
-                    return
+                    break
+
+        self._postProcessingPlugin.scriptListChanged.emit()
+        self._active_injections_changed.emit()
+
+        self._saveInjectionIndexes()
 
 
 
@@ -653,7 +663,7 @@ class GcodeInjector(QObject, Extension):
         if 'gcodeinjector_selected_injection_script' in self._global_container_stack.getMetaData():
             injection_script_name = self._global_container_stack.getMetaDataEntry('gcodeinjector_selected_injection_script')
             try:
-                selected_script_index = self.availableInjectionNames.index(injection_script_name)
+                selected_script_index = self.availableInjectionIds.index(injection_script_name)
             except ValueError:
                 selected_script_index = 0
             self._selected_injection_index = selected_script_index
@@ -662,24 +672,25 @@ class GcodeInjector(QObject, Extension):
         # Restore the injection scripts
         if 'gcodeinjector_injection_indexes' in self._global_container_stack.getMetaData():
             indexes_str = self._global_container_stack.getMetaDataEntry('gcodeinjector_injection_indexes')
-            indexes = [int(index_str) for index_str in indexes_str.split(',')]
+            if indexes_str.strip() != '':
+                indexes = [int(index_str) for index_str in indexes_str.split(',')]
 
-            # HACK - Add a 'layer_number_key' setting to the script's DefinitionContainer to mark it as an injection
-            for index in indexes:
-                try:
-                    script = self._postProcessingPlugin._script_list[index]
-                except IndexError:
-                    continue
-                script_key = script.getSettingData()['key']
-                try:
-                    injection_script = self._injection_scripts[script_key]
-                except KeyError:
-                   continue
-                injectionDefinitionContainer = injection_script._stack.getBottom()
-                keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_key')[0]
-                script._stack.getBottom().addDefinition(keyDefinition)
+                # HACK - Add a 'layer_number_key' setting to the script's DefinitionContainer to mark it as an injection
+                for index in indexes:
+                    try:
+                        script = self._postProcessingPlugin._script_list[index]
+                    except IndexError:
+                        continue
+                    script_key = script.getSettingData()['key']
+                    try:
+                        injection_script = self._injection_scripts[script_key]
+                    except KeyError:
+                        continue
+                    injectionDefinitionContainer = injection_script._stack.getBottom()
+                    keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_key')[0]
+                    script._stack.getBottom().addDefinition(keyDefinition)
 
-                self._injection_scripts_changed.emit()
+                    self._injection_scripts_changed.emit()
 
         # Restore the injection master scripts
         if 'gcodeinjector_injection_master_scripts' in self._global_container_stack.getMetaData():
@@ -701,7 +712,7 @@ class GcodeInjector(QObject, Extension):
                 try:
                     parser.read_string(injection_settings_string)
                 except configparser.Error as e:
-                    Logger.error('Stored injection settings have syntax errors: {err}'.format(err = str(e)))
+                    Logger.log('e', 'Stored injection settings have syntax errors: {err}'.format(err = str(e)))
                     return
         
                 # Iterate over each script in the parser information

@@ -1,5 +1,5 @@
-// Copyright (c) 2022 Jaime van Kessel, Ultimaker B.V.
-// The PostProcessingPlugin is released under the terms of the LGPLv3 or higher.
+// Copyright (c) 2023 Brad Kartchner
+// The GcodeInjector is released under the terms of the LGPLv3 or higher.
 
 import QtQuick 6.0
 import QtQuick.Controls 6.0
