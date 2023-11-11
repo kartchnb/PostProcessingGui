@@ -23,7 +23,7 @@ UM.Dialog
         // Save injection scripts and settings whenever the window is closed
         if (!visible)
         {
-            manager.saveInjectionScripts()
+            manager.saveInjectionScriptSettings()
         }
     }
 
@@ -83,12 +83,11 @@ UM.Dialog
                 ListView
                 {
                     id: listview
-                    Layout.fillWidth: true // BAK
-                    Layout.fillHeight: true // BAK
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
 
                     ScrollBar.vertical: UM.ScrollBar {}
                     clip: true
-                    //visible: manager.selectedDefinitionId != ""
                     spacing: UM.Theme.getSize("default_lining").height
 
                     model: UM.SettingDefinitionsModel

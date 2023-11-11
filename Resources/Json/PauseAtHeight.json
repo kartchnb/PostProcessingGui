@@ -1,5 +1,6 @@
 {
     "key": "PauseAtHeight_Injection",
+    "layer_number_key": "pause_layer",
     "settings":
     { 
         "layer_number_key":
@@ -8,7 +9,7 @@
             "description": "layer_number_key",
             "type": "str",
             "default_value": "pause_layer",
-            "enabled": false
+            "enabled": true
         },
         "pause_at":
         {

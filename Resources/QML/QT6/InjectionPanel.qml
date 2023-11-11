@@ -7,9 +7,11 @@ import Cura 1.7 as Cura
 
 RowLayout
 {
+    visible: manager.showInjectionPanel
+
     Repeater
     {
-        model: manager.injectionModel
+        model: manager.activeInjectionsModel
         Cura.SecondaryButton
         {
             property int layer_number: modelData['layer_number']
