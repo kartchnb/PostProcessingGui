@@ -4,6 +4,7 @@
 import collections
 import configparser  # The script lists are stored in metadata as serialised config files.
 import copy
+import datetime
 from functools import cached_property
 from glob import glob
 import io  # To allow configparser to write to a string.
@@ -453,21 +454,29 @@ class GcodeInjector(QObject, Extension):
         
         # Keep track of the total elapsed time
         layer_start_time = 0.0
+        total_elapsed_time = 0.0
 
         message_lines = []
-        message_lines.append('The print will pause')
 
         # Iterate over each layer in the gcode
         for layer_number, elapsed_time in self._enumerateLayerElapsedTime(gcode):
 
             if layer_number in injected_layer_numbers:
+                # Calculate elapsed times
                 section_elapsed_time = elapsed_time - layer_start_time
+                total_elapsed_time += section_elapsed_time
                 layer_start_time = elapsed_time
-                time_string = self._secondsToTimeString(section_elapsed_time)
-                message_lines.append(f'    at layer {layer_number} after {time_string}')
-        
-        message = '\n'.join(message_lines)
-        Message(message).show()
+
+                # Compile a time string
+                decomposed_time_string = self._secondsToDecomposedTimeString(section_elapsed_time)
+                clock_time_string = self._secondsToClockTimeString(total_elapsed_time)
+                time_string = f'{decomposed_time_string} (about {clock_time_string})'
+                message_lines.append(f'after {time_string}')
+
+        # Assemble the message        
+        message = '\nthen '.join(message_lines)
+        message = 'The print will pause:\n' + message
+        Message(message, lifetime=0).show()
 
 
 
@@ -512,7 +521,7 @@ class GcodeInjector(QObject, Extension):
 
 
 
-    def _secondsToTimeString(self, seconds)->str:
+    def _secondsToDecomposedTimeString(self, seconds)->str:
         ''' Converts a seconds value to a string containing hours, minutes, and seconds '''
 
         hours = int(seconds / 3600)
@@ -521,15 +530,29 @@ class GcodeInjector(QObject, Extension):
         seconds -= minutes * 60
 
         if hours > 0:
-            string = f'about {hours} hours and {minutes} minutes'
+            decomposed_string = f'{hours} hours and {minutes} minutes'
         elif minutes > 1:
-            string = f'about {minutes} minutes'
+            decomposed_string = f'{minutes} minutes'
         elif minutes > 0:
-            string = f'{minutes} minute and {seconds} seconds'
+            decomposed_string = f'{minutes} minute and {seconds} seconds'
         else:
-            string = f'{seconds} seconds'
+            decomposed_string = f'{seconds} seconds'
 
-        return  string
+        return  decomposed_string
+    
+
+
+    def _secondsToClockTimeString(self, seconds)->str:
+        ''' Converts a seconds value to clock time from now '''
+
+        now = datetime.datetime.now()
+        complete = now + datetime.timedelta(seconds=seconds)
+        complete_string = complete.strftime('%-I:%M %p')
+        if now.date() != complete.date():
+            date_string = complete.strftime('%-d %b')
+            complete_string += f' on {date_string}'
+
+        return complete_string
     
 
 
@@ -575,7 +598,6 @@ class GcodeInjector(QObject, Extension):
         else:
             self._postProcessingPlugin._script_list.append(new_script)
             self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
-            Message(f'Injected "{selected_injection_name}" at layer number {layer_number}').show()
 
             # Notify the PostProcessingPlugin to update itself      
             self._postProcessingPlugin.scriptListChanged.emit()
