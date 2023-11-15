@@ -72,7 +72,7 @@ class InsertGcodeAtLayer(Script):
                     Logger.log('d', f'Checking layer {current_layer_number}')
                     if current_layer_number == insert_layer_number:
                         Logger.log('d', 'Inserting gcode')
-                        lines.insert(line_index + 1, f'{inserted_gcode}; Inserted by InsertGcodeAtLayer script')
+                        lines.insert(line_index + 1, inserted_gcode)
                         layer = '\n'.join(lines)
                         data[layer_index] = layer
                         return data
