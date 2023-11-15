@@ -22,6 +22,7 @@ from UM.Extension import Extension
 from UM.Logger import Logger
 from UM.Message import Message
 from UM.PluginRegistry import PluginRegistry
+from UM.Resources import Resources
 from UM.i18n import i18nCatalog
 from cura.CuraApplication import CuraApplication
 
@@ -48,6 +49,8 @@ class GcodeInjector(QObject, Extension):
         self._selected_injection_index:int = 0
 
         self._global_container_stack = None
+
+        Resources.addSearchPath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "Resources"))
 
         # Wait until the application is ready before completing initializing
         CuraApplication.getInstance().mainWindowChanged.connect(self._onMainWindowChanged)
@@ -484,7 +487,7 @@ class GcodeInjector(QObject, Extension):
         # Assemble the message        
         message = '\n'.join(message_lines)
         message = 'The following scripts will be activated:\n' + message
-        Message(message, lifetime=0).show()
+        Message(message, lifetime=0, title="Gcode Injector").show()
 
 
 
@@ -578,7 +581,11 @@ class GcodeInjector(QObject, Extension):
 
         # Hack - Mark this script as an injection by adding a 'layer_number_key' setting to its DefinitionContainer
         injectionDefinitionContainer = injection_script._stack.getBottom()
-        keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_key')[0]
+        try:
+            keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_key')[0]
+        except IndexError:
+            Logger.log('e', 'The injection script is missing a "layer_number_key" entry')
+            return
         new_script._stack.getBottom().addDefinition(keyDefinition)
 
         # Transfer settings from the script master

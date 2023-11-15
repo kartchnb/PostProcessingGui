@@ -1,0 +1,19 @@
+{
+    "key": "InsertGcodeAtLayer_Injection",
+    "layer_number_key": "insert_layer_number",
+    "settings":
+    {
+        "layer_number_key":
+        {
+            "label": "layer_number_key",
+            "description": "layer_number_key",
+            "type": "str",
+            "default_value": "insert_layer_number",
+            "enabled": false
+        },
+        "insert_layer_number":
+        {
+            "enabled": false
+        }
+    }
+}
