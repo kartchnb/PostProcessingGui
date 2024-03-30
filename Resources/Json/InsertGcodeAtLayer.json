@@ -1,12 +1,11 @@
 {
     "script_key": "InsertGcodeAtLayer",
-    "layer_number_key": "insert_layer_number",
+    "layer_number_setting": "insert_layer_number",
+    "critical_settings":
+    {
+    },
     "hidden_settings":
     [
         "insert_layer_number"
-    ],
-    "critical_settings":
-    {
-        "delete_me": false
-    }
+    ]
 }

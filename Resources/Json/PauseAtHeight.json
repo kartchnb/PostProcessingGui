@@ -1,14 +1,14 @@
 {
     "script_key": "PauseAtHeight",
-    "layer_number_key": "pause_layer",
+    "layer_number_setting": "pause_layer",
+    "critical_settings":
+    {
+        "pause_at": "layer_no"
+    },
     "hidden_settings":
     [
         "pause_at",
         "pause_height",
         "pause_layer"
-    ],
-    "critical_settings":
-    {
-        "pause_at": "layer_no"
-    }
+    ]
 }

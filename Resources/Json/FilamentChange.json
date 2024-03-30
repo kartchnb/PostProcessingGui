@@ -1,0 +1,12 @@
+{
+    "script_key": "FilamentChange",
+    "layer_number_setting": "layer_number",
+    "critical_settings":
+    {
+        "enabled": true
+    },
+    "hidden_settings":
+    [
+        "layer_number"
+    ]
+}

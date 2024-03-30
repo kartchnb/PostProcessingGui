@@ -129,8 +129,8 @@ class GcodeInjector(QObject, Extension):
 
             # If this post-processing script is an injection script, record its index
             script = self._postProcessingPlugin._script_list[index]
-            #layer_number_key = script.getSettingValueByKey('layer_number_key')
-            #if layer_number_key is not None:
+            #layer_number_setting = script.getSettingValueByKey('layer_number_setting')
+            #if layer_number_setting is not None:
             #    indexes.append(index)   
             indexes.append(index)
 
@@ -253,33 +253,46 @@ class GcodeInjector(QObject, Extension):
             script = self._postProcessingPlugin._script_list[index]
             script_key = script.getSettingData()['key']
 
+            # Iterate over each available injection
             for injection_dict in self._injection_table:
-
-                overlay_script_key = injection_dict['script_key']
                 
+                # Process this injection if it matches the current script
+                overlay_script_key = injection_dict['script_key']
                 if overlay_script_key == script_key:
 
-                    # Iterate over the critical settings for the injection
-                    critical_settings_dict = injection_dict['critical_settings']
-                    critical_settings_match = True
-                    for critical_setting_key, critical_setting_value in critical_settings_dict.items():
+                    try:
+                        # Iterate over the critical settings for the injection
+                        critical_settings_dict = injection_dict['critical_settings']
+                        critical_settings_match = True
+                        for critical_setting_key, critical_setting_value in critical_settings_dict.items():
 
-                        # If the critical setting is not correct, ignore this script
-                        try:
-                            setting_value = script.getSettingValueByKey(critical_setting_key)
-                            if setting_value != critical_setting_value:
+                            # Check for missing or mismatched critical settings
+                            try:
+                                setting_value = script.getSettingValueByKey(critical_setting_key)
+                                if setting_value != critical_setting_value:
+                                    critical_settings_match = False
+                                    break
+
+                            except KeyError as e:
                                 critical_settings_match = False
                                 break
-                        except KeyError as e:
-                            critical_settings_match = False
-                            break
 
-                    if critical_settings_match == False:
-                        continue
+                        # If there is a critical setting mismatch, ignore this script
+                        if critical_settings_match == False:
+                            continue
+
+                    except KeyError:
+                        # No critical_settings for this injection?  Fine
+                        pass
 
                     # Look up the layer number setting in the script
-                    layer_number_key = injection_dict['layer_number_key']
-                    layer_number = script.getSettingValueByKey(layer_number_key)
+                    layer_number_setting = injection_dict['layer_number_setting']
+                    try:
+                        layer_number = int(script.getSettingValueByKey(layer_number_setting))
+                    except ValueError:
+                        # If the layer number cannot be interpreted as an integer,
+                        # then it can't be used
+                        continue
 
                     # Retrieve the script name
                     script_name = injection_dict['script_name']
@@ -566,12 +579,12 @@ class GcodeInjector(QObject, Extension):
         # Hack - Don't reslice after script changes because that will mess up the preview display
         new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
 
-        # Hack - Mark this script as an injection by adding a 'layer_number_key' setting to its DefinitionContainer
+        # Hack - Mark this script as an injection by adding a 'layer_number_setting' setting to its DefinitionContainer
         injectionDefinitionContainer = injection_script._stack.getBottom()
         try:
-            keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_key')[0]
+            keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_setting')[0]
         except IndexError:
-            Logger.log('e', 'The injection script is missing a "layer_number_key" entry')
+            Logger.log('e', 'The injection script is missing a "layer_number_setting" entry')
             return
         new_script._stack.getBottom().addDefinition(keyDefinition)
 
@@ -580,17 +593,17 @@ class GcodeInjector(QObject, Extension):
         new_script._stack.replaceContainer(0, instanceContainer)
         
         # Set the layer number for this post-processing script
-        layer_number_key = new_script.getSettingValueByKey('layer_number_key')
-        new_script._stack.getTop().setProperty(layer_number_key, 'value', layer_number)
+        layer_number_setting = new_script.getSettingValueByKey('layer_number_setting')
+        new_script._stack.getTop().setProperty(layer_number_setting, 'value', layer_number)
 
         # Iterate over each active post-processing script
         for index in range(0, len(self._postProcessingPlugin._script_list)):
 
             # If this post-processing script is an injection for the same layer being injected to, replace it
             script = self._postProcessingPlugin._script_list[index]
-            layer_number_key = script.getSettingValueByKey('layer_number_key')
-            if layer_number_key is not None:
-                script_layer_number = script.getSettingValueByKey(layer_number_key)
+            layer_number_setting = script.getSettingValueByKey('layer_number_setting')
+            if layer_number_setting is not None:
+                script_layer_number = script.getSettingValueByKey(layer_number_setting)
                 if script_layer_number == layer_number:
                     self._postProcessingPlugin._script_list[index] = new_script
                     break            
@@ -622,8 +635,8 @@ class GcodeInjector(QObject, Extension):
                 continue
 
             # Look up the layer number
-            layer_number_key = overlay['layer_number_key']
-            layer_number = script.getSettingValueByKey(layer_number_key)
+            layer_number_setting = overlay['layer_number_setting']
+            layer_number = script.getSettingValueByKey(layer_number_setting)
 
             if selected_layer_number == layer_number:
                 # Remove the injection script from the list of active post-processing scripts

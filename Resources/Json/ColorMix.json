@@ -1,0 +1,14 @@
+{
+    "script_key": "ColorMix 2-1",
+    "layer_number_setting": "start_height",
+    "critical_settings":
+    {
+        "units_of_measurement": "layer"
+    },
+    "hidden_settings":
+    [
+        "units_of_measurement",
+        "b_targetZ",
+        "pause_layer"
+    ]
+}
