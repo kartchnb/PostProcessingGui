@@ -32,6 +32,13 @@ class InsertGcodeAtLayer(Script):
                     "description": "The gcode to insert (separate lines with '|')",
                     "type": "str",
                     "default_value": ""
+                },
+                "delete_me":
+                {
+                    "label": "Hide",
+                    "description": "Testing injection hiding functionality",
+                    "type": "bool",
+                    "default_value": false
                 }
             }
         }"""

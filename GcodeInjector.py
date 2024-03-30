@@ -2,12 +2,9 @@
 # The GcodeInjector is released under the terms of the LGPLv3 or higher.
 
 import collections
-import configparser  # The script lists are stored in metadata as serialised config files.
-import copy
 import datetime
 from functools import cached_property
 from glob import glob
-import io  # To allow configparser to write to a string.
 import json
 import os.path
 import re
@@ -23,6 +20,7 @@ from UM.Logger import Logger
 from UM.Message import Message
 from UM.PluginRegistry import PluginRegistry
 from UM.Resources import Resources
+from UM.Settings.SettingInstance import SettingInstance #For typing.
 from UM.i18n import i18nCatalog
 from cura.CuraApplication import CuraApplication
 
@@ -30,26 +28,24 @@ from .RecursiveDictOverlay import recursiveDictOverlay
 
 i18n_catalog = i18nCatalog('cura')
 
-if TYPE_CHECKING:
-    from .Script import Script
-
 
 
 class GcodeInjector(QObject, Extension):
-    '''Extension type plugin that enables pre-written scripts to post process g-code files.'''
+    ''' Extension-type plugin that provides a GUI interface for injecting 
+        layer-based post-processing scripts '''
 
     def __init__(self, parent = None) -> None:
-        ''' Basic initialization only
+        ''' Basic class initialization only
             Most initialization is done in the _onMainWindowChanged function '''
         
         QObject.__init__(self, parent)
         Extension.__init__(self)
 
-        self._injection_scripts:Dict[str, Type(Script)] = {} # Dict[script name, script class]
+        self._injection_table:List[Dict] = []
         self._selected_injection_index:int = 0
-
         self._global_container_stack = None
 
+        # Make scripts installed with this plugin visible to the post-processing plugin
         Resources.addSearchPath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "Resources"))
 
         # Wait until the application is ready before completing initializing
@@ -95,6 +91,7 @@ class GcodeInjector(QObject, Extension):
     @cached_property
     def _postProcessingPlugin(self):
         ''' Convenience property to cache and return the PostProcessingPlugin object '''
+
         plugin = PluginRegistry.getInstance().getPluginObject('PostProcessingPlugin')
         return plugin
     
@@ -113,29 +110,14 @@ class GcodeInjector(QObject, Extension):
     @cached_property
     def _injectionMenu(self)->QObject:
         ''' Convenience property to cache and return the injection menu dialog '''
+
         qml_file_path = os.path.join(self._qmlDir, 'InjectionMenu.qml')
         component = CuraApplication.getInstance().createQmlComponent(qml_file_path, {'manager': self})
         return component
     
 
 
-    @cached_property
-    def _availableJsonOverlayIds(self):
-        ''' Return a list of the JSON overlay IDs included with this plugin
-            These IDs are just the JSON filename stripped of the extension '''
-        
-        # Retrieve the names of all .json files included with the plugin
-        json_dir = os.path.join(self._pluginDir, 'Resources', 'Json')
-        json_wildcard = os.path.join(json_dir, '*.json')
-        json_fileNames = glob(json_wildcard)
-
-        # Strip the file extension from the file names to get overlay ids
-        json_ids = [os.path.splitext(os.path.basename(fileName))[0] for fileName in json_fileNames]
-
-        return json_ids
-    
-
-
+    """
     @property
     def injectionIndexes(self)->list:
         ''' Returns a list of the indexes of postprocessing scripts that correlate to injections '''
@@ -147,14 +129,17 @@ class GcodeInjector(QObject, Extension):
 
             # If this post-processing script is an injection script, record its index
             script = self._postProcessingPlugin._script_list[index]
-            layer_number_key = script.getSettingValueByKey('layer_number_key')
-            if layer_number_key is not None:
-                indexes.append(index)   
+            #layer_number_key = script.getSettingValueByKey('layer_number_key')
+            #if layer_number_key is not None:
+            #    indexes.append(index)   
+            indexes.append(index)
 
         return indexes
+    """
 
 
 
+    """
     @pyqtProperty(bool, notify=_show_injection_panel_changed)
     def showInjectionPanel(self)->bool:
         ''' The injection panel is only shown when Cura is displaying the SimulationView '''
@@ -163,7 +148,10 @@ class GcodeInjector(QObject, Extension):
             state = CuraApplication.getInstance().getController().getActiveView().name == 'SimulationView'
         except AttributeError:
             state = False
+        # TODO: Remove this line
+        state = True
         return state
+    """
 
 
 
@@ -178,7 +166,7 @@ class GcodeInjector(QObject, Extension):
         return state
 
 
-
+    """
     @pyqtProperty(list, notify=_injection_scripts_changed)
     def availableInjectionIds(self)->list[str]:
         ''' Return the ids of the available injection scripts (the JSON filename without the file extension)
@@ -186,17 +174,18 @@ class GcodeInjector(QObject, Extension):
         
         ids = list(self._injection_scripts.keys())
         return ids
-    
+    """
+
 
 
     @pyqtProperty(list, notify=_injection_scripts_changed)
-    def availableInjectionModel(self)->list[dict[str, str]]:
-        ''' Return a model used to provide the injection menu with the injection names 
-            This just returns the list of availableInjectionIds as a list of dictionaries for QML '''
+    def availableInjectionsModel(self)->list[dict[str, str]]:
+        ''' Return a model containing the names of all available injections '''
 
-        model = [{'name': self._injection_scripts[id].getSettingData()['name']} for id in self.availableInjectionIds]
+        model = [injection_dict['script_name'] for injection_dict in self._injection_table]
+        
         return model
-    
+
 
 
     def setSelectedInjectionIndex(self, index:int)->None:
@@ -204,7 +193,13 @@ class GcodeInjector(QObject, Extension):
 
         # Update the selected injection script index
         self._selected_injection_index = index
+
+        # Update the saved plugin settings
+        self._savePluginSettings()
+
+        # Broadcast the index change
         self._selected_injection_index_changed.emit()
+
 
 
 
@@ -213,22 +208,7 @@ class GcodeInjector(QObject, Extension):
         ''' Return the index of the currently-selected injection script '''
 
         return self._selected_injection_index
-    
 
-
-    @pyqtProperty(str, notify=_selected_injection_index_changed)
-    def selectedInjectionName(self)->str:
-        ''' Return the name of the selected injection '''
-
-        id = self.availableInjectionIds[self._selected_injection_index]
-        try:
-            script = self._injection_scripts[id]
-        except KeyError:
-            Logger.log('e', f'Failed to find the active script with id "{id}"')
-        
-        name = script.getSettingData()['name']
-        return name
-    
 
 
     @pyqtProperty(str, notify=_selected_injection_index_changed)
@@ -237,14 +217,15 @@ class GcodeInjector(QObject, Extension):
             This ID is the value of the "key" entry in the injection script's JSON overlay '''
         
         try:
-            script_id = self.availableInjectionIds[self._selected_injection_index]
-            id = self._injection_scripts[script_id].getDefinitionId()
+            injection_dict = self._injection_table[self._selected_injection_index]
+            id = injection_dict['script_key']
         except AttributeError:
             id = ''
+        Logger.log('d', f'selectedDefinitionId = "{id}"')
         return id
-    
 
 
+    """
     @pyqtProperty(str, notify=_selected_injection_index_changed)
     def selectedStackId(self)->str:
         ''' Return the ID of the currently-selected script's ContainerStack for the currently-selected injection script
@@ -256,7 +237,7 @@ class GcodeInjector(QObject, Extension):
         except AttributeError:
             id = ''
         return id
-
+    """
 
 
     @pyqtProperty(list, notify=_active_injections_changed)
@@ -266,23 +247,47 @@ class GcodeInjector(QObject, Extension):
         active_injections_model = []
 
         # Iterate over each active post-processing script
-        for index in self.injectionIndexes:
+        for index in range(0, len(self._postProcessingPlugin._script_list)):
 
             # Retrieve the postprocessing script
             script = self._postProcessingPlugin._script_list[index]
+            script_key = script.getSettingData()['key']
 
-            # Look up the layer number
-            layer_number_key = script.getSettingValueByKey('layer_number_key')
-            if layer_number_key is None:
-                continue # This should never be needed
-            layer_number = script.getSettingValueByKey(layer_number_key)
+            for injection_dict in self._injection_table:
 
-            # Retrieve the script name
-            script_name = script.getSettingData()['name']
+                overlay_script_key = injection_dict['script_key']
+                
+                if overlay_script_key == script_key:
 
-            # Add this information to the model
-            active_injections_model.append({'layer_number': layer_number, 'script_name': script_name})
+                    # Iterate over the critical settings for the injection
+                    critical_settings_dict = injection_dict['critical_settings']
+                    critical_settings_match = True
+                    for critical_setting_key, critical_setting_value in critical_settings_dict.items():
 
+                        # If the critical setting is not correct, ignore this script
+                        try:
+                            setting_value = script.getSettingValueByKey(critical_setting_key)
+                            if setting_value != critical_setting_value:
+                                critical_settings_match = False
+                                break
+                        except KeyError as e:
+                            critical_settings_match = False
+                            break
+
+                    if critical_settings_match == False:
+                        continue
+
+                    # Look up the layer number setting in the script
+                    layer_number_key = injection_dict['layer_number_key']
+                    layer_number = script.getSettingValueByKey(layer_number_key)
+
+                    # Retrieve the script name
+                    script_name = injection_dict['script_name']
+
+                    # Add the script information to the active injections model
+                    active_injections_model.append({'script_name': script_name, 'layer_number': layer_number})
+
+        # Sort the injections by ascending layer number
         active_injections_model = sorted(active_injections_model, key=lambda x: x['layer_number'])
 
         return active_injections_model
@@ -293,8 +298,7 @@ class GcodeInjector(QObject, Extension):
     def onInsertInjectionButtonLeftClicked(self)->None:
         ''' When the injection menu button is left-clicked, an injection is inserted at the active layer '''
 
-        layer_number = self._simulationView.getCurrentLayer() + 1 # Add one to match Cura's layer numbering
-        self._addInjection(layer_number)
+        self._injectionMenu.show()   
 
 
 
@@ -302,7 +306,9 @@ class GcodeInjector(QObject, Extension):
     def onInsertInjectionButtonRightClicked(self)->None:
         ''' When the injection menu button is right-clicked, the injection settings menu is shown '''
 
-        self._injectionMenu.show()   
+        layer_number = self._simulationView.getCurrentLayer() + 1 # Add one to match Cura's layer numbering
+        self._injectionMenu.show()
+        self._addInjection(layer_number)
 
 
 
@@ -322,58 +328,12 @@ class GcodeInjector(QObject, Extension):
 
 
 
+    """
     @pyqtSlot()
-    def saveInjectionScriptSettings(self) -> None:
-        ''' Save injection scripts to the global container stack '''
+    def updatePostProcessingScripts(self) -> None:
+        self.saveInjectionScriptSettings()
+    """
 
-        # Can't do anything if there's no global container stack to write to
-        if self._global_container_stack is None:
-            Logger.log('e', 'Unable to save injection scripts without a global container stack')
-            return
-
-        # Save the name of the selected injection script to the global container stack
-        injection_script_id = self.availableInjectionIds[self._selected_injection_index]
-        self._saveToGlobalContainerStack('gcodeinjector_selected_injection_script', injection_script_id)
-
-        settings_list: List[str] = []
-
-        # Iterate over each injection script
-        for injection_name, injection_script in self._injection_scripts.items():
-
-            # Encode the injection script and its settings using ConfigParser
-            parser = configparser.ConfigParser(interpolation=None)  # We'll encode the script as a config with one section. The section header is the key and its values are the settings.
-            parser.optionxform = str  # type: ignore # Don't transform the setting keys as they are case-sensitive.
-
-            # Add a section for this injection script
-            parser.add_section(injection_name)
-
-            try:
-                # Add each injection script setting
-                for key in injection_script.getSettingData()['settings']:
-                    value = injection_script.getSettingValueByKey(key)
-                    parser[injection_name][key] = str(value)
-    
-            except AttributeError:
-                Logger.log('e', f'Malformed script "{injection_script}"')
-
-            # Read the parser into a single string
-            serialized = io.StringIO()  # ConfigParser can only write to streams. Fine.
-            parser.write(serialized)
-            serialized.seek(0)
-            settings = serialized.read()
-
-            # Escape strings that will cause issues
-            settings = settings.replace('\\\\', r'\\\\').replace('\n', r'\\\n')  # Escape newlines because configparser sees those as section delimiters.
-            
-            # Add this injection script's settings to the list
-            settings_list.append(settings)
-
-        # Combine all injection script setting strings into a single string
-        injection_settings_string = '\n'.join(settings_list)  # ConfigParser should never output three newlines in a row when serialised, so it's a safe delimiter.
-
-        # Save the script data to the global container stack
-        self._saveToGlobalContainerStack('gcodeinjector_injection_master_scripts', injection_settings_string)
-        
 
 
     def _onActivityChanged(self)->None:
@@ -392,15 +352,16 @@ class GcodeInjector(QObject, Extension):
 
         # Disconnect from the previous global container stack
         if self._global_container_stack:
-            self._global_container_stack.metaDataChanged.disconnect(self._restoreInjectionScripts)
+            self._global_container_stack.metaDataChanged.disconnect(self._loadPluginSettings)
 
         # Remember the new global container stack and listen for it to change
         self._global_container_stack = Application.getInstance().getGlobalContainerStack()
         if self._global_container_stack:
-            self._global_container_stack.metaDataChanged.connect(self._restoreInjectionScripts)
+            self._global_container_stack.metaDataChanged.connect(self._loadPluginSettings)
+            self._global_container_stack.propertyChanged.connect(self._onGlobalContainerStackPropertyChanged)
 
         # Restore or initialize the injection scripts based on the new global container stack
-        self._restoreInjectionScripts()
+        self._loadPluginSettings()
 
 
 
@@ -410,23 +371,49 @@ class GcodeInjector(QObject, Extension):
         # We won't be needing this callback anymore (it's probably not necessary to disconnect, but I'm doing it anyway)
         CuraApplication.getInstance().mainWindowChanged.disconnect(self._onMainWindowChanged)
 
+        # Load overlay data
+        self._loadInjectionOverlays()
+
         # Remember the current global container stack        
         self._global_container_stack = Application.getInstance().getGlobalContainerStack()
+        
         if self._global_container_stack:
-            self._global_container_stack.metaDataChanged.connect(self._restoreInjectionScripts)
+            self._global_container_stack.metaDataChanged.connect(self._loadPluginSettings)
+            self._global_container_stack.propertyChanged.connect(self._onGlobalContainerStackPropertyChanged)
 
-        # Connect to the simulation view
+        # Monitor for changes to the simulation view and active view
         self._simulationView.activityChanged.connect(self._onActivityChanged)
         CuraApplication.getInstance().getController().activeViewChanged.connect(self._onActivityChanged)
-
-        # Restore or initialize the injection scripts
-        self._restoreInjectionScripts()
 
         # Create the injection panel
         CuraApplication.getInstance().addAdditionalComponent('saveButton', self._injectionPanel)
 
         # Run a callback when a write is started
         Application.getInstance().getOutputDeviceManager().writeStarted.connect(self._onWriteStarted)
+
+        # Listen for post-processing script changes
+        self._postProcessingPlugin.scriptListChanged.connect(self._onPostProcessingScriptListChanged)
+        self._postProcessingPlugin._onPropertyChanged.connect(self._onPostProcessingPropertyChanged)
+
+
+
+    def _onGlobalContainerStackPropertyChanged(self, instance:SettingInstance, property:str)->None:
+        ''' Called whenever a property is changed in the global container stack '''
+        
+        # TODO: Is there a way to react only to PostProcessingPlugin property changes?
+        # Look into the SettingInstance class
+        if property == 'value':
+            
+            # Update the active injections list to force the panel to update
+            self._active_injections_changed.emit()
+
+
+
+    def _onPostProcessingScriptListChanged(self)->None:
+        ''' Called whenever the post-processing scripts change '''
+
+        # Update the active injections
+        self._active_injections_changed.emit()
 
 
 
@@ -438,8 +425,7 @@ class GcodeInjector(QObject, Extension):
 
         # If there are no injections, there is nothing to be processed
         if len(injected_layers_dict) == 0:
-            return 
-        
+            return         
                 
         # Retrieve the g-code
         scene = Application.getInstance().getController().getScene()
@@ -567,6 +553,7 @@ class GcodeInjector(QObject, Extension):
     
 
 
+    """
     def _addInjection(self, layer_number:int)->None:
         ''' Add an injection at the given layer based on the currently-selected injection script '''
 
@@ -615,153 +602,66 @@ class GcodeInjector(QObject, Extension):
 
         self._postProcessingPlugin.scriptListChanged.emit()
         self._active_injections_changed.emit()
-
-        self._saveInjectionIndexes()
-
+    """
 
 
-    def _removeInjection(self, layer_number:int)->None:
+
+    def _removeInjection(self, selected_layer_number:int)->None:
         ''' Remove an injection from the list of active post-processing scripts in the PostProcessingPlugin '''
 
         # Iterate over each active post-processing script
         for index in range(0, len(self._postProcessingPlugin._script_list)):
 
-            # Only look into this script if it is an injection script (meaning, it has a 'layer_number_key' setting)
+            # Retrieve the postprocessing script
             script = self._postProcessingPlugin._script_list[index]
-            layer_number_key = script.getSettingValueByKey('layer_number_key')
-            if layer_number_key is not None:
+            script_key = script.getSettingData()['key']
 
-                # Check if this injection is for the given layer number
-                injected_layer_number = script.getSettingValueByKey(layer_number_key)
-                if injected_layer_number == layer_number:
+            try:
+                overlay = self._injection_table[script_key]
+            except KeyError:
+                continue
 
-                    # Remove the injection script from the list of active post-processing scripts
-                    self._postProcessingPlugin._script_list.pop(index)
-                    if len(self._postProcessingPlugin._script_list) - 1 < self._postProcessingPlugin._selected_script_index:
-                        self._postProcessingPlugin._selected_script_index = len(self._postProcessingPlugin._script_list) - 1
-                    self._postProcessingPlugin.scriptListChanged.emit()
-                    self._postProcessingPlugin.selectedIndexChanged.emit()  # Ensure that settings are updated
-                    self._active_injections_changed.emit()
+            # Look up the layer number
+            layer_number_key = overlay['layer_number_key']
+            layer_number = script.getSettingValueByKey(layer_number_key)
 
-                    # There's no need to search any further
-                    break
+            if selected_layer_number == layer_number:
+                # Remove the injection script from the list of active post-processing scripts
+                self._postProcessingPlugin._script_list.pop(index)
+                if len(self._postProcessingPlugin._script_list) - 1 < self._postProcessingPlugin._selected_script_index:
+                    self._postProcessingPlugin._selected_script_index = len(self._postProcessingPlugin._script_list) - 1
+                # TODO: Is this line redundant?
+                self._postProcessingPlugin.scriptListChanged.emit()
+                self._postProcessingPlugin.selectedIndexChanged.emit()  # Ensure that settings are updated
+                # TODO: Is this line redundant?
+                self._active_injections_changed.emit()
 
         self._postProcessingPlugin.scriptListChanged.emit()
         self._active_injections_changed.emit()
 
-        self._saveInjectionIndexes()
+
+    def _savePluginSettings(self) -> None:
+        ''' Save the plugin settings to the global container stack '''
+
+        if self._global_container_stack is not None:
+            pass
+            #self._saveToGlobalContainerStack('selected_injection_index', self._selected_injection_index)
+        else:
+            Logger.log('e', 'Unable to save injection scripts without a global container stack')
 
 
 
-    def _restoreInjectionScripts(self)->None:
+    def _loadPluginSettings(self)->None:
         ''' Restore or initialize injection scripts and their settings '''
-    
+
         selected_injection_name = None
 
-        # Start by loading all available injections with default settings
-        self._initializeInjectionScripts()
-
-        # If there is no global container stack then nothing else can be done
-        if self._global_container_stack is None:
-            Logger.log('e', 'Unable to restore injection scripts because there is no global container stack')
+        # Restore the previously-selected injection ID
+        if self._global_container_stack is not None:
+            pass
+        else:
+            Logger.log('e', 'Unable to restore plugin settings because there is no global container stack')
             return
-
-        # Restore the index of the selected injection script
-        if 'gcodeinjector_selected_injection_script' in self._global_container_stack.getMetaData():
-            injection_script_id = self._global_container_stack.getMetaDataEntry('gcodeinjector_selected_injection_script')
-            try:
-                selected_script_index = self.availableInjectionIds.index(injection_script_id)
-            except ValueError:
-                selected_script_index = 0
-            self._selected_injection_index = selected_script_index
-            self._selected_injection_index_changed.emit()
-
-        # Restore the injection scripts
-        if 'gcodeinjector_injection_indexes' in self._global_container_stack.getMetaData():
-            indexes_str = self._global_container_stack.getMetaDataEntry('gcodeinjector_injection_indexes')
-            if indexes_str.strip() != '':
-                indexes = [int(index_str) for index_str in indexes_str.split(',')]
-
-                # HACK - Add a 'layer_number_key' setting to the script's DefinitionContainer to mark it as an injection
-                for index in indexes:
-                    try:
-                        script = self._postProcessingPlugin._script_list[index]
-                    except IndexError:
-                        continue
-                    script_key = script.getSettingData()['key']
-                    try:
-                        injection_script = self._injection_scripts[script_key]
-                    except KeyError:
-                        continue
-                    injectionDefinitionContainer = injection_script._stack.getBottom()
-                    keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_key')[0]
-                    script._stack.getBottom().addDefinition(keyDefinition)
-
-                    self._injection_scripts_changed.emit()
-
-        # Restore the injection master scripts
-        if 'gcodeinjector_injection_master_scripts' in self._global_container_stack.getMetaData():
-
-            # Grab the combined injection settings string from the global container stack
-            combined_settings_string = self._global_container_stack.getMetaDataEntry('gcodeinjector_injection_master_scripts')
-
-            # Iterate over each injection script settings string within the combined settings string
-            for injection_settings_string in combined_settings_string.split('\n'):
-                if not injection_settings_string:
-                    continue
-
-                # Reverse the escape characters introduced when saving
-                injection_settings_string = injection_settings_string.replace(r'\\\n', '\n').replace(r'\\\\', '\\\\')
-
-                # Feed the injection settings to the ConfigParser
-                parser = configparser.ConfigParser(interpolation=None)
-                parser.optionxform = str # Don't transform the setting keys as they are case-sensitive.
-                try:
-                    parser.read_string(injection_settings_string)
-                except configparser.Error as e:
-                    Logger.log('e', 'Stored injection settings have syntax errors: {err}'.format(err = str(e)))
-                    return
-        
-                # Iterate over each script in the parser information
-                # Although there should only be one, the parser contains a DEFAULT section that is not used
-                for injection_name, injection_settings in parser.items():  # There should only be one, really! Otherwise we can't guarantee the order or allow multiple uses of the same script.
-                    
-                    # Ignore the DEFAULT config section
-                    if injection_name == 'DEFAULT':
-                        continue
-
-                    # Handle the non-script sections
-                    if injection_name == 'Selected Injection Name':
-                        selected_injection_name = injection_settings
-
-                    elif injection_name == 'Injection Script Indexes':
-                        injection_indexes_str = injection_settings
-                        injection_indexes = [int(x) for x in injection_indexes_str.split(',')]
-
-                        for index in injection_indexes:
-                            # Hack - Mark this script as an injection by adding a 'layer_number_key' setting to its DefinitionContainer
-                            script = self._postProcessingPlugin._script_list[index]
-                            script_name = script.getSettingData()['name']
-                            injection_script = self._injection_scripts[script_name]
-                            injectionDefinitionContainer = injection_script._stack.getBottom()
-                            keyDefinition = injectionDefinitionContainer.findDefinitions(key='layer_number_key')[0]
-                            script._stack.getBottom().addDefinition(keyDefinition)
-
-                            layer_number_key = script.getSettingValueByKey('layer_number_key')
-                            layer_number = script.getSettingValueByKey(layer_number_key)
-
-                    # Only include recognized injections
-                    elif injection_name in self._injection_scripts:
-                        # Restore each of the saved settings for this injection script
-                        for setting_key, setting_value in injection_settings.items():
-                            self._injection_scripts[injection_name]._instance.setProperty(setting_key, 'value', setting_value)
-
-                    # Report unrecognized "scripts"
-                    else:
-                        Logger.log('e', f'Unknown post-processing script "{injection_name}" was encountered in this global stack.')
-                        continue
-
-            self._active_injections_changed.emit()
 
 
 
@@ -769,7 +669,7 @@ class GcodeInjector(QObject, Extension):
         ''' Save the requested setting to the global container stack without triggering a change event '''
 
         # We don't want this write to trigger a metadata changed event
-        self._global_container_stack.metaDataChanged.disconnect(self._restoreInjectionScripts)
+        self._global_container_stack.metaDataChanged.disconnect(self._loadPluginSettings)
         self._postProcessingPlugin._global_container_stack.metaDataChanged.disconnect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
 
         # Initialize the metadata entry if it's not already present
@@ -780,63 +680,60 @@ class GcodeInjector(QObject, Extension):
         self._global_container_stack.setMetaDataEntry(metadata_entry, setting)
 
         # Continue listening for metadata changes
-        self._global_container_stack.metaDataChanged.connect(self._restoreInjectionScripts)
+        self._global_container_stack.metaDataChanged.connect(self._loadPluginSettings)
         self._postProcessingPlugin._global_container_stack.metaDataChanged.connect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
 
 
 
-    def _saveInjectionIndexes(self) -> None:
-        ''' Save the indexes of the postprocessing scripts that correspond to injections to the global container stack '''
+    def _loadInjectionOverlays(self)->None:
+        ''' Load all overlays files '''
 
-        # Can't do anything if there's no global container stack to write to
-        if self._global_container_stack is None:
-            Logger.log('d', 'Unable to save injection scripts without a global container stack')
-            return
+        self._injection_table:List[Dict] = []
 
-        # Save the injection indexes
-        indexes = self.injectionIndexes
-        indexes_str = ','.join([str(index) for index in indexes])
-        self._saveToGlobalContainerStack('gcodeinjector_injection_indexes', indexes_str)
+        # Retrieve the names of all .json files included with the plugin
+        json_dir = os.path.join(self._pluginDir, 'Resources', 'Json')
+        json_wildcard = os.path.join(json_dir, '*.json')
+        json_file_paths = glob(json_wildcard)
 
+        # Iterate over each available JSON overlay file
+        for json_file_path in json_file_paths:
 
+            # Grab just the file name of this overlay file
+            overlay_file_name = os.path.basename(json_file_path)
 
-    def _initializeInjectionScripts(self)->None:
-        ''' Initializes all valid injection scripts with default values '''
+            # Open the overlay
+            with open(json_file_path, 'r') as json_file:
 
-        # Iterate over each script in the post-processing plugin
-        for script_name in self._postProcessingPlugin._loaded_scripts.keys():
+                try:
+                    # Read in the contents as a dictionary
+                    overlay_dict = json.load(json_file, object_pairs_hook=collections.OrderedDict)
 
-            # Only initialize scripts with matching JSON overlays
-            if script_name in self._availableJsonOverlayIds:
-                self._injection_scripts[script_name] = self._loadInjectionScript(script_name)
+                    # Determine the key of the corresponding post-processing script
+                    overlay_script_key = overlay_dict['script_key']
 
-        # Select the first injection by default
-        self._selected_injection_index = 0
+                    # Look up the matching post-processing script
+                    try:
+                        # Determine the matching post-processing script class
+                        script_class = self._postProcessingPlugin._loaded_scripts[overlay_script_key]
+                        overlay_dict['script_class'] = script_class
+                    except KeyError:
+                        Logger.log('w', f'The script key "{overlay_script_key}" in "{overlay_file_name}" does not match any available post-processing scripts')
+                        continue
 
+                    try:
+                        # Use a temporary instantation to grab script information
+                        temp_script = script_class()
+                        script_name = temp_script.getSettingData()['name']
+                        overlay_dict['script_name'] = script_name
+                    except KeyError:
+                        Logger.log('e', f'The post-processing script with key "{overlay_script_key}" does not have a "name" entry')
+                        continue
 
+                    # Record the injection information in the injection table
+                    self._injection_table.append(overlay_dict)
 
-    def _loadInjectionScript(self, injection_name)->None:
-        ''' Load a single injection script by script name '''
-        
-        # Create the injection script
-        new_script = self._postProcessingPlugin._loaded_scripts[injection_name]()
-        
-        # Load the settings overlay for the script
-        json_fileName = f'{injection_name}.json'
-        json_path = os.path.join(self._pluginDir, 'Resources', 'Json', json_fileName)
-        with open(json_path, 'r') as json_file:
-            overlay_setting_data = json.load(json_file, object_pairs_hook = collections.OrderedDict)
+                except json.decoder.JSONDecodeError as e:
+                    Logger.log('w', f'Overlay file "{overlay_file_name}" is malformed:\n{e}')
 
-        # Overlay the JSON settings onto the script's original settings
-        setting_data = recursiveDictOverlay(new_script.getSettingData(), overlay_setting_data)
-
-        # Hack to override the script's settings with the overlaid settings
-        new_script.getSettingData = MethodType(lambda self: setting_data, new_script)
-
-        # Initialize the script now
-        new_script.initialize()
-
-        # Hack - Don't reslice after script changes because that will mess up the preview display
-        new_script._stack.propertyChanged.disconnect(new_script._onPropertyChanged)
-
-        return new_script
+                except KeyError:
+                    Logger.log('w', f'Overlay file "{overlay_file_name}" is missing a "script_key" definition and will be ignored')

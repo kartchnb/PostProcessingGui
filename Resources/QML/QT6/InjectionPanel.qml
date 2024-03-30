@@ -7,7 +7,7 @@ import Cura 1.7 as Cura
 
 RowLayout
 {
-    visible: manager.showInjectionPanel
+    //visible: manager.showInjectionPanel
 
     Repeater
     {
@@ -22,7 +22,7 @@ RowLayout
 
             tooltip:
             {
-                return modelData['script_name'] + '<br><br>Left-click to go to the layer<br>Right-click to delete the injection'
+                return modelData['script_name'] + '<br><br>Left-click to go to the layer<br>Right-click or center-click to delete the injection'
             }
             toolTipContentAlignment: UM.Enums.ContentAlignment.AlignLeft
 
@@ -51,28 +51,22 @@ RowLayout
         height: UM.Theme.getSize('action_button').height
         iconSource: Qt.resolvedUrl('../../Images/InjectorButtonIcon.svg')
         fixedWidthMode: false
-        enabled: manager.canAddInjections
+        
+        visible: manager.canAddInjections
 
         tooltip:
         {
-            return manager.selectedInjectionName + ' is active<br><br>Left-click to insert an injection<br>Right-click to modify the injection'
+            //return manager.selectedInjectionName + ' is active<br><br>Left-click to insert an injection<br>Right-click to modify the injection'
         }
 
         MouseArea
         {
             anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            acceptedButtons: Qt.LeftButton
 
             onClicked:
             {
-                if (mouse.button === Qt.RightButton)
-                {
-                    manager.onInsertInjectionButtonRightClicked()
-                }
-                else
-                {
-                    manager.onInsertInjectionButtonLeftClicked()
-                }
+                manager.onInsertInjectionButtonLeftClicked()
             }
         }
     }

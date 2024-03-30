@@ -17,25 +17,16 @@ UM.Dialog
     height: 500 * screenScaleFactor
     minimumWidth: 400 * screenScaleFactor
     minimumHeight: 250 * screenScaleFactor
+    buttonSpacing: UM.Theme.getSize('default_margin').width
     backgroundColor: UM.Theme.getColor("main_background")
-    onVisibleChanged:
-    {
-        // Save injection scripts and settings whenever the window is closed
-        if (!visible)
-        {
-            manager.saveInjectionScriptSettings()
-        }
-    }
 
     Item
     {
-        id: contents
         width: dialog.width - 2 * UM.Theme.getSize('default_margin').width
         height: parent.height
 
         RowLayout
         {
-            id: iconPanel
             width: parent.width
             height: parent.height
             spacing: UM.Theme.getSize('default_margin').width
@@ -67,8 +58,8 @@ UM.Dialog
                 {
                     id: injectionSelection
                     Layout.fillWidth: true
-                    model: manager.availableInjectionModel
-                    textRole: 'name'
+                    model: manager.availableInjectionsModel
+                    textRole: 'script_name'
                     currentIndex: manager.selectedInjectionIndex
 
                     onCurrentIndexChanged:
@@ -253,6 +244,15 @@ UM.Dialog
         {
             text: 'OK'
             onClicked: dialog.accept()
+        },
+        Cura.PrimaryButton
+        {
+            text: 'Cancel'
+            onClicked: dialog.reject()
         }
     ]
+
+    onAccepted:
+    {
+    }
 }

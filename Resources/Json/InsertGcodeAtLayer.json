@@ -1,19 +1,12 @@
 {
-    "key": "InsertGcodeAtLayer_Injection",
+    "script_key": "InsertGcodeAtLayer",
     "layer_number_key": "insert_layer_number",
-    "settings":
+    "hidden_settings":
+    [
+        "insert_layer_number"
+    ],
+    "critical_settings":
     {
-        "layer_number_key":
-        {
-            "label": "layer_number_key",
-            "description": "layer_number_key",
-            "type": "str",
-            "default_value": "insert_layer_number",
-            "enabled": false
-        },
-        "insert_layer_number":
-        {
-            "enabled": false
-        }
+        "delete_me": false
     }
 }

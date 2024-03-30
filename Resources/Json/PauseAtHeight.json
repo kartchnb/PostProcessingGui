@@ -1,27 +1,14 @@
 {
-    "key": "PauseAtHeight_Injection",
-    "settings":
-    { 
-        "layer_number_key":
-        {
-            "label": "layer_number_key",
-            "description": "layer_number_key",
-            "type": "str",
-            "default_value": "pause_layer",
-            "enabled": false
-        },
-        "pause_at":
-        {
-            "default_value": "layer_no",
-            "enabled": false
-        },
-        "pause_height":
-        {
-            "enabled": false
-        },
-        "pause_layer":
-        {
-            "enabled": false
-        }
-   }
+    "script_key": "PauseAtHeight",
+    "layer_number_key": "pause_layer",
+    "hidden_settings":
+    [
+        "pause_at",
+        "pause_height",
+        "pause_layer"
+    ],
+    "critical_settings":
+    {
+        "pause_at": "layer_no"
+    }
 }
