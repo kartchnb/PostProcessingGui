@@ -44,6 +44,7 @@ class GcodeInjector(QObject, Extension):
         self._injection_table:List[Dict] = []
         self._selected_injection_index:int = 0
         self._global_container_stack = None
+        self._tempInjectionScript = None
 
         # Make scripts installed with this plugin visible to the post-processing plugin
         Resources.addSearchPath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "Resources"))
@@ -60,6 +61,12 @@ class GcodeInjector(QObject, Extension):
     _selected_injection_index_changed = pyqtSignal()
     _show_injection_panel_changed = pyqtSignal()
     
+
+
+    @cached_property
+    def _metaDataId(self)->str:
+        return self.getPluginId().lower()
+
 
 
     @cached_property
@@ -158,6 +165,8 @@ class GcodeInjector(QObject, Extension):
     @pyqtProperty(bool, notify=_can_add_injections_changed)
     def canAddInjections(self)->bool:
         ''' Injections can only be added when Cura is displaying the SimulationView and the scene has been sliced '''
+        # TODo: Remove this line
+        return True
 
         try:
             state = CuraApplication.getInstance().getController().getActiveView().getActivity()
@@ -182,7 +191,7 @@ class GcodeInjector(QObject, Extension):
     def availableInjectionsModel(self)->list[dict[str, str]]:
         ''' Return a model containing the names of all available injections '''
 
-        model = [injection_dict['script_name'] for injection_dict in self._injection_table]
+        model = [{'script_name': injection_dict['script_name']} for injection_dict in self._injection_table]
         
         return model
 
@@ -196,6 +205,19 @@ class GcodeInjector(QObject, Extension):
 
         # Update the saved plugin settings
         self._savePluginSettings()
+
+        # Look up the selected injection
+        try:
+            injection_dict = self._injection_table[self._selected_injection_index]
+        except IndexError:
+            Logger.log('e', f'The selected injection index ({self._selected_injection_index}) extends beyond the available injections ({len(self._injection_table)} total)')
+            injection_dict = self._injection_table[0]
+
+        # Create a temporary injection script
+        injection_script_class = injection_dict['script_class']
+        Logger.log('d', f'injection_script_class = "{injection_script_class}"')
+        self._tempInjectionScript = injection_script_class()
+        self._tempInjectionScript.initialize()
 
         # Broadcast the index change
         self._selected_injection_index_changed.emit()
@@ -217,27 +239,26 @@ class GcodeInjector(QObject, Extension):
             This ID is the value of the "key" entry in the injection script's JSON overlay '''
         
         try:
-            injection_dict = self._injection_table[self._selected_injection_index]
-            id = injection_dict['script_key']
+            id = self._tempInjectionScript.getDefinitionId()
         except AttributeError:
             id = ''
         Logger.log('d', f'selectedDefinitionId = "{id}"')
         return id
 
 
-    """
+
     @pyqtProperty(str, notify=_selected_injection_index_changed)
     def selectedStackId(self)->str:
         ''' Return the ID of the currently-selected script's ContainerStack for the currently-selected injection script
             This is a unique numerical ID based on the script object instance and is set by the Script class in PostProcessingPlugins '''
-        
+
         try:
-            script_id = self.availableInjectionIds[self._selected_injection_index]
-            id = self._injection_scripts[script_id].getStackId()
+            id = self._tempInjectionScript.getStackId()
         except AttributeError:
             id = ''
+        Logger.log('d', f'selectedStackId = "{id}"')
         return id
-    """
+
 
 
     @pyqtProperty(list, notify=_active_injections_changed)
@@ -311,6 +332,13 @@ class GcodeInjector(QObject, Extension):
     def onInsertInjectionButtonLeftClicked(self)->None:
         ''' When the injection menu button is left-clicked, an injection is inserted at the active layer '''
 
+        if len(self._injection_table) <= 0:
+            Logger.log('w', 'There are no injections available')
+            return
+        
+
+        # Load persistent plugin settings
+        self._loadPluginSettings()
         self._injectionMenu.show()   
 
 
@@ -390,6 +418,7 @@ class GcodeInjector(QObject, Extension):
         # Remember the current global container stack        
         self._global_container_stack = Application.getInstance().getGlobalContainerStack()
         
+        # Connect to global container stack events
         if self._global_container_stack:
             self._global_container_stack.metaDataChanged.connect(self._loadPluginSettings)
             self._global_container_stack.propertyChanged.connect(self._onGlobalContainerStackPropertyChanged)
@@ -657,44 +686,68 @@ class GcodeInjector(QObject, Extension):
         ''' Save the plugin settings to the global container stack '''
 
         if self._global_container_stack is not None:
-            pass
-            #self._saveToGlobalContainerStack('selected_injection_index', self._selected_injection_index)
+
+            Logger.log('d', 'Saving plugin settings')
+
+            # Get the currently-selected injection script key
+            injection_dict = self._injection_table[self._selected_injection_index]
+            selected_injection_script_key = injection_dict['script_key']
+            Logger.log('d', f'selected_injection_script_key="{selected_injection_script_key}"')
+
+            # We don't want this write to trigger a metadata changed event
+            self._global_container_stack.metaDataChanged.disconnect(self._loadPluginSettings)
+            self._postProcessingPlugin._global_container_stack.metaDataChanged.disconnect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
+
+            # Initialize this plugin's metadata entry if it's not already present
+            Logger.log('d', f'metaDataKey = "{self._metaDataId}"')
+            if self._metaDataId not in self._global_container_stack.getMetaData():
+                self._global_container_stack.setMetaDataEntry(self._metaDataId, '')
+
+            # Save the selected injection script key
+            # TODO: Should probably save a serialized dict of settings for future expandibility
+            self._global_container_stack.setMetaDataEntry(self._metaDataId, selected_injection_script_key)
+
+            # Continue listening for metadata changes
+            self._global_container_stack.metaDataChanged.connect(self._loadPluginSettings)
+            self._postProcessingPlugin._global_container_stack.metaDataChanged.connect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
+            Logger.log('d', 'Done saving plugin settings')
+
         else:
             Logger.log('e', 'Unable to save injection scripts without a global container stack')
 
 
 
     def _loadPluginSettings(self)->None:
-        ''' Restore or initialize injection scripts and their settings '''
-
-        selected_injection_name = None
+        ''' Restore or initialize this plugin's settings '''
 
         # Restore the previously-selected injection ID
         if self._global_container_stack is not None:
-            pass
+            
+            Logger.log('d', 'Loading plugin settings')
+            # Load the selected injection script key
+            Logger.log('d', f'self._metaDataId = "{self._metaDataId}"')
+            selected_injection_script_key = self._global_container_stack.getMetaDataEntry(self._metaDataId)
+            Logger.log('d', f'selected_injection_script_key = "{selected_injection_script_key}"')
+
+            # Find the index of the selected injection script key
+            selected_injection_script_index = 0
+            for index in range(0, len(self._injection_table)):
+                injection_dict = self._injection_table[index]
+                injection_key = injection_dict['script_key']
+                Logger.log('d', f'Checking injection key "{injection_key}"')
+                if injection_key == selected_injection_script_key:
+                    selected_injection_script_index = index
+                    break
+
+            Logger.log('d', f'Found injection at index {selected_injection_script_index}')
+
+            # Update the selected injection index
+            if self.selectedInjectionIndex != selected_injection_script_index:
+                self.setSelectedInjectionIndex(selected_injection_script_index)
+
+            Logger.log('d', 'Done loading plugin settings')
         else:
             Logger.log('e', 'Unable to restore plugin settings because there is no global container stack')
-            return
-
-
-
-    def _saveToGlobalContainerStack(self, metadata_entry:str, setting:str)->None:
-        ''' Save the requested setting to the global container stack without triggering a change event '''
-
-        # We don't want this write to trigger a metadata changed event
-        self._global_container_stack.metaDataChanged.disconnect(self._loadPluginSettings)
-        self._postProcessingPlugin._global_container_stack.metaDataChanged.disconnect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
-
-        # Initialize the metadata entry if it's not already present
-        if metadata_entry not in self._global_container_stack.getMetaData():
-            self._global_container_stack.setMetaDataEntry(metadata_entry, '')
-
-        # Save the setting
-        self._global_container_stack.setMetaDataEntry(metadata_entry, setting)
-
-        # Continue listening for metadata changes
-        self._global_container_stack.metaDataChanged.connect(self._loadPluginSettings)
-        self._postProcessingPlugin._global_container_stack.metaDataChanged.connect(self._postProcessingPlugin._restoreScriptInforFromMetadata)
 
 
 
