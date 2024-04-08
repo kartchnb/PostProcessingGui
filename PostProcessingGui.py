@@ -545,7 +545,7 @@ class PostProcessingGui(QObject, Extension):
                 decomposed_time_string = self._secondsToDecomposedTimeString(section_elapsed_time)
                 clock_time_string = self._secondsToClockTimeString(total_elapsed_time)
                 time_string = f'{decomposed_time_string} (about {clock_time_string})'
-                message_lines.append(f'- {script_name} after {time_string}')
+                message_lines.append(f'- "{script_name}" after {time_string}')
 
         # Assemble and display the message        
         message = '\n'.join(message_lines)
