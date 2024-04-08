@@ -1,8 +1,8 @@
 {
-    "name": "Gcode Injector",
+    "name": "PostProcessingGui",
     "author": "Brad Kartchner",
     "version": "0.0.1",
     "api": 8,
-    "description": "Simplifies injecting code at specific layers in a model",
+    "description": "Simplifies adding post-processing scripts at specific layers in a model",
     "catalog": "cura"
 }

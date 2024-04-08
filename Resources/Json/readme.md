@@ -1,42 +1,28 @@
-# Adding injections
-New "injections" can easily be added for any post-processing script that acts
-based on a layer height.
+# Adding post-processing scripts
 
-To add a new "injection", create a .json file in this folder and define the 
-following entries:
+New post-processing scripts can be added to the GUI by simply creating a corresponding .json file in this folder and defining the following entries:
 
-- script_key: the "key" of the script the injection is associated with
-  This just needs to match the "key" value of the associated script, which
-  can be found by examining the script itself
+- script_key - the "key" of the post-processing script
+  This can be found as the "key" value of the associated script, which can be found by examining the script itself
 
-- layer_number_setting - the setting that identifies the layer number at which
-  the post-processing script will take effect
+- layer_number_setting - the name of the script setting that defines the layer the post-processing script acts on
   This setting name can be found by examining the script itself
 
-- (optional) critical_settings - define a set of critical settings and the
-  values they must have for the injection to be valid
+- (optional) critical_settings - a list of critical settings and the values they should be set to for the GUI
 
-- (optional) hidden_settings - settings to hide when using the injection menu
-
-# Sample injection file
-The following injection file contents defines an injection for the "Pause at 
-Height" post-processing script.
+# Sample .json file
+The following .json file contents adds the "Pause at Height" post-processing script.
 
 Note that the settings require the "Pause at Height" script to be configured to
-pause at a layer number rather than height and several settings are hidden when
-this injection is used
+pause at a layer number rather than height.
 
+```
 {
     "script_key": "PauseAtHeight",
     "layer_number_setting": "pause_layer",
     "critical_settings":
     {
         "pause_at": "layer_no"
-    },
-    "hidden_settings":
-    [
-        "pause_at",
-        "pause_height",
-        "pause_layer"
-    ]
+    }
 }
+```

@@ -3,9 +3,5 @@
     "layer_number_setting": "insert_layer_number",
     "critical_settings":
     {
-    },
-    "hidden_settings":
-    [
-        "insert_layer_number"
-    ]
+    }
 }

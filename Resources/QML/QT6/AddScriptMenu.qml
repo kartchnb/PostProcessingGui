@@ -1,5 +1,5 @@
-// Copyright (c) 2023 Brad Kartchner
-// The GcodeInjector is released under the terms of the LGPLv3 or higher.
+// Copyright (c) 2024 Brad Kartchner
+// PostProcessingGui is released under the terms of the LGPLv3 or higher.
 
 import QtQuick 6.0
 import QtQuick.Controls 6.0
@@ -12,7 +12,7 @@ UM.Dialog
 {
     id: dialog
 
-    title: 'Gcode Injector'
+    title: 'Select a script to add'
     width: 500 * screenScaleFactor
     height: 500 * screenScaleFactor
     minimumWidth: 400 * screenScaleFactor
@@ -41,7 +41,7 @@ UM.Dialog
                 Image
                 {
                     id: icon
-                    source: Qt.resolvedUrl('../../Images/GcodeInjectorIcon.png')
+                    source: Qt.resolvedUrl('../../Images/PluginIcon.png')
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
@@ -56,17 +56,17 @@ UM.Dialog
                 
                 Cura.ComboBox
                 {
-                    id: injectionSelection
+                    id: scriptSelection
                     Layout.fillWidth: true
-                    model: manager.availableInjectionsModel
+                    model: manager.availableScriptsModel
                     textRole: 'script_name'
-                    currentIndex: manager.selectedInjectionIndex
+                    currentIndex: manager.selectedScriptIndex
 
                     onCurrentIndexChanged:
                     {
-                        if (manager.selectedInjectionIndex != currentIndex)
+                        if (manager.selectedScriptIndex != currentIndex)
                         {
-                            manager.selectedInjectionIndex = currentIndex
+                            manager.selectedScriptIndex = currentIndex
                         }
                     }
                 }
@@ -254,5 +254,12 @@ UM.Dialog
 
     onAccepted:
     {
+        manager.addScript()
+        manager.savePluginSettings()
+    }
+
+    onRejected:
+    {
+        manager.savePluginSettings()
     }
 }

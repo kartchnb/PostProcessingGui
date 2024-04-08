@@ -4,11 +4,5 @@
     "critical_settings":
     {
         "units_of_measurement": "layer"
-    },
-    "hidden_settings":
-    [
-        "units_of_measurement",
-        "b_targetZ",
-        "pause_layer"
-    ]
+    }
 }

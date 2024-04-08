@@ -29,7 +29,7 @@ class InsertGcodeAtLayer(Script):
                 "inserted_gcode":
                 {
                     "label": "Gcode",
-                    "description": "The gcode to insert (separate lines with '|')",
+                    "description": "The gcode to insert (separate lines with '\\n' or '|')",
                     "type": "str",
                     "default_value": ""
                 }
@@ -51,6 +51,7 @@ class InsertGcodeAtLayer(Script):
         insert_layer_number = self.getSettingValueByKey("insert_layer_number")
         Logger.log('d', f'insert_layer_number = {insert_layer_number}')
         inserted_gcode = self.getSettingValueByKey("inserted_gcode")
+        inserted_gcode = inserted_gcode.replace('\\n', '\n')
         inserted_gcode = inserted_gcode.replace('|', '\n')
 
         # Iterate over each layer

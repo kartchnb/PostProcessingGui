@@ -4,9 +4,5 @@
     "critical_settings":
     {
         "enabled": true
-    },
-    "hidden_settings":
-    [
-        "layer_number"
-    ]
+    }
 }

@@ -4,11 +4,5 @@
     "critical_settings":
     {
         "pause_at": "layer_no"
-    },
-    "hidden_settings":
-    [
-        "pause_at",
-        "pause_height",
-        "pause_layer"
-    ]
+    }
 }

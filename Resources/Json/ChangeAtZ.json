@@ -3,13 +3,6 @@
     "layer_number_setting": "b_targetL",
     "critical_settings":
     {
-        "caz_enabled": true,
         "a_trigger": "layer_no"
-    },
-    "hidden_settings":
-    [
-        "a_trigger",
-        "b_targetZ",
-        "pause_layer"
-    ]
+    }
 }
