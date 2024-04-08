@@ -1,16 +1,21 @@
-from ..Script import Script
-import re
-from UM.Application import Application #To get the current printer's settings.
-from UM.Logger import Logger
+# Copyright (c) 2024 Brad Kartchner
+# Released under the terms of the LGPLv3 or higher.
 
-from typing import List, Tuple
+from UM.Logger import Logger
+from ..Script import Script
+
+from typing import List
+
+
 
 class InsertGcodeAtLayer(Script):
     def __init__(self) -> None:
         super().__init__()
 
+
+
     def getSettingDataString(self) -> str:
-        return """{
+        return '''{
             "name": "Insert gcode at layer",
             "key": "InsertGcodeAtLayer",
             "metadata": {},
@@ -34,48 +39,65 @@ class InsertGcodeAtLayer(Script):
                     "default_value": ""
                 }
             }
-        }"""
+        }'''
 
-    ##  Copy machine name and gcode flavor from global stack so we can use their value in the script stack
+
+
     def initialize(self) -> None:
+        ''' Initialize the script '''
         super().initialize()
 
 
-    def execute(self, data: List[str]) -> List[str]:
-        """Inserts the gcode commands.
 
-        :param data: List of layers.
-        :return: New list of layers.
-        """
+    def execute(self, gcode: List[str]) -> List[str]:
+        ''' Insert the gcode at the defined layer '''
 
-        insert_layer_number = self.getSettingValueByKey("insert_layer_number")
-        Logger.log('d', f'insert_layer_number = {insert_layer_number}')
-        inserted_gcode = self.getSettingValueByKey("inserted_gcode")
+        # Determine the layer number to insert the gcode at
+        insert_layer_number = self.getSettingValueByKey('insert_layer_number')
+
+        # Retrieve the gcode to insert
+        # Replace faux newline characters and pipe characters with newlines
+        inserted_gcode = self.getSettingValueByKey('inserted_gcode')
         inserted_gcode = inserted_gcode.replace('\\n', '\n')
         inserted_gcode = inserted_gcode.replace('|', '\n')
 
         # Iterate over each layer
-        for layer_index, layer in enumerate(data):
-            lines = layer.split("\n")
+        for layer_index, layer in enumerate(gcode):
+            
+            # Split the layer into lines
+            lines = layer.split('\n')
 
-            # Iterate over each line of instruction for each layer in the G-code
+            # Iterate over each line of instruction in the layer
             for line_index, line in enumerate(lines):
 
-                if line.startswith(";LAYER:"):
-                    current_layer_number_string = line[len(";LAYER:"):]
+                # If this is the start of the layer
+                if line.startswith(';LAYER:'):
+
+                    # Extract the layer number
+                    current_layer_number_string = line[len(';LAYER:'):]
                     try:
                         current_layer_number = int(current_layer_number_string)
-                    # Couldn't cast to int. Something is very wrong with this
-                    # g-code data
                     except ValueError:
+                        # If the layer number can't be cast to an integer, 
+                        # there is something very wrong with the gcode
                         continue
 
-                    Logger.log('d', f'Checking layer {current_layer_number}')
+                    # If this is the layer that needs to be modified
                     if current_layer_number == insert_layer_number:
-                        Logger.log('d', 'Inserting gcode')
+
+                        # Insert the gcode at this point
                         lines.insert(line_index + 1, inserted_gcode)
+                        
+                        # Reassemble the layer
                         layer = '\n'.join(lines)
-                        data[layer_index] = layer
-                        return data
+
+                        # Return the modified layer to the gcode
+                        gcode[layer_index] = layer
+
+                        # There's no more need to search through the gcode
+                        return gcode
                     
-        return data
+        # If execution reaches this point, the layer could not be found in the
+        # gcode
+        Logger.log('w', f'InsertGcodeAtLayer post-processing script was unable to find layer #{insert_layer_number} to insert gcode')
+        return gcode

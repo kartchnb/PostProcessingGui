@@ -1,12 +1,10 @@
 # Copyright (c) 2024 Brad Kartchner
-# PostProcessingGui is released under the terms of the LGPLv3 or higher.
+# Released under the terms of the LGPLv3 or higher.
 
 import collections
-import copy
 import datetime
 from functools import cached_property
 from glob import glob
-import inspect # Remove after debugging
 import json
 import os.path
 import re

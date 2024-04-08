@@ -1,5 +1,5 @@
 // Copyright (c) 2024 Brad Kartchner
-// PostProcessingGui is released under the terms of the LGPLv3 or higher.
+// Released under the terms of the LGPLv3 or higher.
 
 import QtQuick 6.0
 import QtQuick.Controls 6.0
