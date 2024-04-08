@@ -176,6 +176,9 @@ class PostProcessingGui(QObject, Extension):
         self._tempScript = script_class()
         self._tempScript.initialize()
 
+        # Changes to this script shouldn't force reslicing
+        self._tempScript._stack.propertyChanged.disconnect(self._tempScript._onPropertyChanged)
+
         # Update the critical settings of the script
         critical_settings = script_data['critical_settings']
         for critical_setting, critical_value in critical_settings.items():
@@ -298,12 +301,15 @@ class PostProcessingGui(QObject, Extension):
     def addScript(self)->None:
         ''' Add the selected script into the list of post-processing scripts '''
 
-        # Make a copy of the selected script
-        script_copy = copy.deepcopy(self._tempScript)
+        # Now that the script is being added, changes should cause reslicing
+        self._tempScript._stack.propertyChanged.connect(self._tempScript._onPropertyChanged)
 
         # Add the script to the active post-processing scripts
-        self._postProcessingPlugin._script_list.append(script_copy)
+        self._postProcessingPlugin._script_list.append(self._tempScript)
         self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
+
+        # Create a new temporary script
+        self._tempScript = type(self._tempScript)()
 
         # Trigger the post-processing plugin to update itself
         self._postProcessingPlugin.scriptListChanged.emit()
@@ -424,7 +430,6 @@ class PostProcessingGui(QObject, Extension):
             Logger.log('e', f'Error connecting to old Global Container Stack: {e}')
 
         # Restore or initialize the available scripts based on the new global container stack
-        self._initializeScriptTable()
         self._loadPluginSettings()
 
 
@@ -446,7 +451,7 @@ class PostProcessingGui(QObject, Extension):
         except TypeError as e:
             Logger.log('e', f'Error connecting to the Global Container Stack: {e}')
 
-        # Load overlay data
+        # Initialize the scripts
         self._initializeScriptTable()
 
         # Monitor for changes to the simulation view and active view
@@ -470,8 +475,7 @@ class PostProcessingGui(QObject, Extension):
     def _onGlobalContainerStackPropertyChanged(self, instance:SettingInstance, property:str)->None:
         ''' Called whenever a property is changed in the global container stack '''
         
-        # TODO: Is there a way to react only to PostProcessingPlugin property changes?
-        # Look into the SettingInstance class
+        # Only react to value changes
         if property == 'value':
             
             # Update the active scripts panel
@@ -638,6 +642,8 @@ class PostProcessingGui(QObject, Extension):
         self._postProcessingPlugin.scriptListChanged.emit()
         self._postProcessingPlugin.selectedIndexChanged.emit()  # Ensure that settings are updated
 
+        self._postProcessingPlugin.writeScriptsToStack()
+
 
 
     def _loadPluginSettings(self)->None:
@@ -677,27 +683,27 @@ class PostProcessingGui(QObject, Extension):
         json_wildcard = os.path.join(json_dir, '*.json')
         json_file_paths = glob(json_wildcard)
 
-        # Iterate over each available JSON overlay file
+        # Iterate over each available JSON file
         for json_file_path in json_file_paths:
 
-            # Grab just the file name of this overlay file
+            # Grab just the file name of this jsob file
             json_file_name = os.path.basename(json_file_path)
 
-            # Open the overlay
+            # Open the json file
             with open(json_file_path, 'r') as json_file:
 
                 try:
                     # Read in the contents as a dictionary
-                    overlay_dict = json.load(json_file, object_pairs_hook=collections.OrderedDict)
+                    json_dict = json.load(json_file, object_pairs_hook=collections.OrderedDict)
 
                     # Determine the key of the corresponding post-processing script
-                    json_script_key = overlay_dict['script_key']
+                    json_script_key = json_dict['script_key']
 
                     # Look up the matching post-processing script
                     try:
                         # Determine the matching post-processing script class
                         script_class = self._postProcessingPlugin._loaded_scripts[json_script_key]
-                        overlay_dict['script_class'] = script_class
+                        json_dict['script_class'] = script_class
                     except KeyError:
                         Logger.log('w', f'The script key "{json_script_key}" in "{json_file_name}" does not match any available post-processing scripts')
                         continue
@@ -706,15 +712,18 @@ class PostProcessingGui(QObject, Extension):
                         # Use a temporary instantation to grab script information
                         temp_script = script_class()
                         script_name = temp_script.getSettingData()['name']
-                        overlay_dict['script_name'] = script_name
+                        json_dict['script_name'] = script_name
                     except KeyError:
                         continue
 
                     # Record the script information in the table
-                    self._script_table.append(overlay_dict)
+                    self._script_table.append(json_dict)
 
                 except json.decoder.JSONDecodeError as e:
-                    Logger.log('w', f'Overlay file "{json_file_name}" is malformed:\n{e}')
+                    Logger.log('w', f'JSON file "{json_file_name}" is malformed:\n{e}')
 
                 except KeyError:
-                    Logger.log('w', f'Overlay file "{json_file_name}" is missing a "script_key" definition and will be ignored')
+                    Logger.log('w', f'JSON file "{json_file_name}" is missing a "script_key" definition and will be ignored')
+
+        # Sort the script table by name
+        self._script_table = sorted(self._script_table, key=lambda x: x['script_name'])
