@@ -309,7 +309,9 @@ class PostProcessingGui(QObject, Extension):
         self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
 
         # Create a new temporary script
-        self._tempScript = type(self._tempScript)()
+        script_class = type(self._tempScript)
+        self._tempScript = script_class()
+        self._tempScript.initialize()
 
         # Trigger the post-processing plugin to update itself
         self._postProcessingPlugin.scriptListChanged.emit()
