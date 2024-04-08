@@ -24,14 +24,14 @@ RowLayout
 
             tooltip:
             {
+                // Return an appropriate tool tip for this button
+                var message = 'Center-click to remove this script<br>Right-click to bring up the script settings'
                 if (manager.showAddScriptButton)
                 {
-                    return modelData['script_name'] + '<br><br>Left-click to go to the layer<br>Center-click to remove this script<br>Right-click to bring up the script settings'
+                    message = 'Left-click to show this layer<br>' + message
                 }
-                else
-                {
-                    return modelData['script_name'] + '<br><br>Center-click to remove this script<br>Right-click to bring up the script settings'
-                }
+                message = 'Script: "' + modelData['script_name'] + '"<br><br>' + message
+                return message
             }
             toolTipContentAlignment: UM.Enums.ContentAlignment.AlignLeft
 
