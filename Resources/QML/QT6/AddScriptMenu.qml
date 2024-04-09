@@ -41,7 +41,7 @@ UM.Dialog
                 Image
                 {
                     id: icon
-                    source: Qt.resolvedUrl('../../Images/PluginIcon.png')
+                    source: Qt.resolvedUrl('../../Images/MenuIcon.png')
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
