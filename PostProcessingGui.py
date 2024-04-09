@@ -305,15 +305,14 @@ class PostProcessingGui(QObject, Extension):
         # Add the script to the active post-processing scripts
         self._postProcessingPlugin._script_list.append(self._tempScript)
         self._postProcessingPlugin.setSelectedScriptIndex(len(self._postProcessingPlugin._script_list) - 1)
-
-        # Create a new temporary script
-        script_class = type(self._tempScript)
-        self._tempScript = script_class()
-        self._tempScript.initialize()
+        self._postProcessingPlugin.scriptListChanged.emit()
+        self._postProcessingPlugin._propertyChanged()
 
         # Trigger the post-processing plugin to update itself
-        self._postProcessingPlugin.scriptListChanged.emit()
         self._postProcessingPlugin.writeScriptsToStack()
+
+        # "Set" the selected script index to generate a new temporary script
+        self.setSelectedScriptIndex(self._selected_script_index)
 
 
 
@@ -324,7 +323,7 @@ class PostProcessingGui(QObject, Extension):
 
         # Update the layer number in the selected script
         script_data = self._script_table[self._selected_script_index]
-        layer_number_setting = script_data['layer_number_setting']   
+        layer_number_setting = script_data['layer_number_setting'] 
         layer_number = Application.getInstance().getController().getView('SimulationView').getCurrentLayer() + 1
         self._tempScript._stack.getTop().setProperty(layer_number_setting, 'value', layer_number)
 
