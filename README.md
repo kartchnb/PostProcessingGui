@@ -2,7 +2,7 @@
 
 This Cura plugin simply adds a GUI to allow you to add layer-focused post-processing scripts directly from Cura's print preview.
 
-A new button will be appear when in the Preview tab of Cura with a sliced model that will allow a script to be added at the currently-selected layer number.  
+A new button will be appear when in the Preview tab of Cura with a sliced model that will allow a script to be added at the currently-displayed layer.  
 
 Buttons will also appear for post-processing scripts that activate at specific layers in the model. Left-clicking these buttons will activate the corresponding layer (on the Preview tab only).  Right-clicking will bring up the script settings.  Center-clicking will remove the script.
 
