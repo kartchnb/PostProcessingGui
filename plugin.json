@@ -3,5 +3,5 @@
     "author": "Brad Kartchner",
     "version": "1.0.0",
     "description": "Simplifies adding post-processing scripts at specific layers in a model",
-    "supported_sdk_versions": ["7.9.0", "8.0.0", "8.1.0", "8.2.0", "8.3.0", "8.4.0", "8.5.0", "8.6.0"]
+    "supported_sdk_versions": ["8.0.0", "8.1.0", "8.2.0", "8.3.0", "8.4.0", "8.5.0", "8.6.0"]
 }
