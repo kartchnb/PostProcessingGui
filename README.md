@@ -1,3 +1,7 @@
+<a href="https://www.buymeacoffee.com/kartchnb"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a soda&emoji=&slug=kartchnb&button_colour=40DCA5&font_colour=ffffff&font_family=Bree&outline_colour=000000&coffee_colour=FFDD00" /></a>
+
+[![Github All Releases](https://img.shields.io/github/downloads/kartchnb/PostProcessingGui/total.svg)]()
+
 # Description
 
 This Cura plugin simply adds a GUI to allow you to add layer-focused post-processing scripts directly from Cura's print preview.
