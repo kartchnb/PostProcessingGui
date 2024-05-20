@@ -23,8 +23,6 @@ from UM.Settings.SettingInstance import SettingInstance #For typing.
 from UM.i18n import i18nCatalog
 from cura.CuraApplication import CuraApplication
 
-i18n_catalog = i18nCatalog('cura')
-
 
 
 class PostProcessingGui(QObject, Extension):

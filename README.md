@@ -2,7 +2,7 @@
 
 This Cura plugin simply adds a GUI to allow you to add layer-focused post-processing scripts directly from Cura's print preview.
 
-A new button will be appear when in the Preview tab of Cura with a sliced model that will allow a script to be added at the currently-displayed layer.  
+This plugin causes a new button to appear when the Preview tab of Cura is shown with a sliced model.  This button allows a script to be added at the currently-displayed layer.
 
 Buttons will also appear for post-processing scripts that activate at specific layers in the model. Left-clicking these buttons will activate the corresponding layer (on the Preview tab only).  Right-clicking will bring up the script settings.  Center-clicking will remove the script.
 
@@ -13,6 +13,17 @@ Finally, when saving gcode to a file or sending it to a printer, the plugin will
 ![image](https://github.com/kartchnb/PostProcessingGui/assets/54730012/27e17d06-5c89-42c3-9547-a185831e31c0)
 
 And that's about it.  Not earth-shattering by any means, but it makes my life easier.
+
+# To use
+
+After installation, this plugin can be used by:
+
+1. Slicing a model in Cura
+2. Displaying the Preview tab
+3. Use the layer slider to find the layer where you need post-processing to be done
+4. Click the PostProcessingGui button near the lower-right corner of the Cura window
+5. Configure the post-processing script as normal
+6. Print!
 
 # Adding support for additional post-processing scripts
 
